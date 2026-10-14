@@ -15,7 +15,7 @@ export function readServerConfig(env=process.env) {
 }
 export function safeStartupError(error) {
     if(['MISSING_MONGO_URL','INVALID_MONGO_URL','INVALID_PORT'].includes(error.code))return {code:error.code,message:error.message};
-    if(error.code===18)return {code:'MONGO_AUTH_FAILED',message:'MongoDB rejected the database-user credentials. Verify the Atlas database username/password in MONGO_URL.'};
+    if(error.code===18||error.code===8000&&/bad auth|authentication failed/i.test(error.message||''))return {code:'MONGO_AUTH_FAILED',message:'MongoDB rejected the database-user credentials. Verify the Atlas database username/password in MONGO_URL.'};
     if(error.name==='MongoServerSelectionError')return {code:'MONGO_UNREACHABLE',message:'Unable to reach MongoDB. Verify Atlas network access for the service outbound addresses and that the cluster is available.'};
     return {code:'STARTUP_FAILED',errorType:['MongoServerError','MongoParseError','MongoNetworkError','MongoAPIError','Error','TypeError'].includes(error.name)?error.name:undefined,driverCode:Number.isInteger(error.code)?error.code:undefined,message:'Unable to start Ledify. Verify the MongoDB URI, database-user credentials, Atlas network access, and service environment configuration.'};
 }

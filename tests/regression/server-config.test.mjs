@@ -16,6 +16,7 @@ test('invalid MongoDB values fail before connection without exposing credentials
     assert.throws(()=>readServerConfig({MONGO_URL:'invalid',MONGODB_URI:'mongodb://localhost/db'}),{code:'INVALID_MONGO_URL'});
     assert.ok(!JSON.stringify(safeStartupError(new Error('secret database credentials'))).includes('secret database credentials'));
     assert.equal(safeStartupError({code:18}).code,'MONGO_AUTH_FAILED');
+    assert.equal(safeStartupError({code:8000,message:'bad auth : authentication failed'}).code,'MONGO_AUTH_FAILED');
     assert.equal(safeStartupError({name:'MongoServerSelectionError'}).code,'MONGO_UNREACHABLE');
 });
 test('Render port is honored and public-interface binding is explicit',()=>{
