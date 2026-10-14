@@ -715,6 +715,20 @@ export const slideContentSchemas = [
 // GET CONTENT SCHEMA FOR SLIDE TYPE
 // =========================================================
 
+export const SLIDE_TYPE_CONTENT_MAP = Object.freeze(Object.fromEntries(
+    slideContentSchemas.flatMap(schema => schema.usedBy.map(type => [type, Object.keys(schema.structure)[0]]))
+));
+
+// Readable widescreen capacities, shared by Gemini schemas and the renderer.
+export const PRESENTATION_COLLECTION_LIMITS = Object.freeze({
+    items: 6, cards: 6, 'comparison.items': 3, 'comparison.items.points': 4,
+    'relationship.nodes': 5, 'relationship.relationships': 5, 'process.steps': 6,
+    'timeline.events': 6, 'roadmap.phases': 6, statistics: 4,
+    'chart.labels': 8, 'chart.datasets': 3, 'chart.datasets.values': 8,
+    'table.columns': 4, 'table.rows': 6, 'table.rows.cells': 4,
+    'summary.points': 5, 'conclusion.supportingPoints': 4
+});
+
 export const getContentSchemaForSlideType = (
     slideType
 ) => {

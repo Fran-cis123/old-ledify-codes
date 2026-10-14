@@ -1,0 +1,12 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { webpageLayoutService } from '../Service/webpageLayoutService.mjs';
+import { webpageThemeService } from '../Service/webpageThemeService.mjs';
+import { webpageRenderer } from '../renderer/webpage/webpageRenderer.mjs';
+const sample = {outputType:'webpage',pageType:'portfolio',title:'Studio North',design:{preset:'editorial'},hero:{headline:'Ideas shaped into meaningful work.',subheadline:'A portfolio of creative projects, research, and design.'},sections:[{type:'projects',heading:'Selected work',content:'A few projects worth exploring.',items:[{title:'Atlas',description:'A research-led visual identity.'},{title:'Horizon',description:'A thoughtfully designed digital experience.'},{title:'Field Notes',description:'Editorial stories and observations.'}]},{type:'faq',heading:'Common questions',items:[{title:'Do you collaborate?',description:'Yes, on suitable projects.'}]}],callToAction:{heading:'Let’s create something useful.',text:'Get in touch to discuss your idea.'}};
+const plan = webpageThemeService(webpageLayoutService(sample));
+const files = webpageRenderer(plan);
+const out = new URL('../website-demo/', import.meta.url);
+await mkdir(out,{recursive:true});
+for(const [name, content] of Object.entries(files)) await writeFile(new URL(name,out),content);
+if (!files['index.html'].includes('Selected work') || !files['script.js']) throw new Error('Renderer smoke test failed');
+console.log('SUCCESS: website-demo/index.html, style.css, script.js generated');

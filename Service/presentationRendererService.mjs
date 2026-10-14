@@ -129,6 +129,8 @@ export const presentationRendererService = (
 
     return {
 
+        ...presentation,
+
         // ---------------------------------------------
         // PRESENTATION IDENTITY
         // ---------------------------------------------
@@ -246,6 +248,8 @@ const prepareSlideForRenderer = (
     // =====================================================
 
     return {
+
+        ...slide,
 
         slideNumber:
             slide.slideNumber ||

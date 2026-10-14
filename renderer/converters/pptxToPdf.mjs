@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { pathToFileURL } from "node:url";
 import {
     execFile
 } from "child_process";
@@ -209,6 +210,7 @@ export const convertPptxToPdf = async ({
     // =====================================================
 
     const argumentsList = [
+        `-env:UserInstallation=${pathToFileURL(path.join(path.resolve(workingDirectory), "libreoffice-profile")).href}`,
 
         "--headless",
 

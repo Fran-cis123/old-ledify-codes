@@ -1,4 +1,5 @@
 export const presentationLayouts = [
+    {id:'relationship-chain-vertical',slideTypes:['relationship'],description:'A vertical chain of related entities with readable mechanisms and relationship labels.'},
 
 
     // =========================================================

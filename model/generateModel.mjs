@@ -24,6 +24,8 @@ const generationSchema = new mongoose.Schema(
             default: "pending"
         },
 
+        artifacts: { type: mongoose.Schema.Types.Mixed },
+
         generatedContent: {
             type: mongoose.Schema.Types.Mixed
         }

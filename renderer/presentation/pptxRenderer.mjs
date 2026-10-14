@@ -230,17 +230,7 @@ const renderPresentationSlide = ({
     // 4. CHECK REGISTERED LAYOUT
     // =====================================================
     //
-    // An unknown layout does NOT crash the entire
-    // presentation at this stage.
-    //
-    // layoutRegistry will route the request to the
-    // fallback renderer.
-    //
-    // The warning is still useful during development
-    // because it tells us that the selected layout and
-    // renderer registry are out of sync.
-    //
-    // =====================================================
+    // Reject unsupported layouts before creating misleading placeholder content.
 
     if (
         !hasLayoutRenderer(
@@ -248,13 +238,7 @@ const renderPresentationSlide = ({
         )
     ) {
 
-        console.warn(
-            `[PPTX RENDERER] Slide ${
-                index + 1
-            } requested unregistered layout "${
-                normalizedSlideData.layoutId
-            }". The fallback renderer will be used.`
-        );
+        throw new Error(`Slide ${index + 1}: unsupported layout "${normalizedSlideData.layoutId}"`);
 
     }
 
@@ -278,15 +262,24 @@ const renderPresentationSlide = ({
 
         });
 
+        const notes = [normalizedSlideData.speakerNotes,
+            ...(normalizedSlideData.references || []).map(ref => `${ref.title || 'Source'}: ${ref.url}`),
+            normalizedSlideData.resolvedVisual?.altText ? `Diagram description: ${normalizedSlideData.resolvedVisual.altText}` : '',
+            ...(normalizedSlideData.resolvedVisual?.references || []).map(url => `Diagram factual reference: ${url}`),
+            normalizedSlideData.backgroundAsset?.attribution,
+            normalizedSlideData.backgroundAsset?.originalUrl].filter(Boolean);
+        if(normalizedSlideData.resolvedVisual?.attribution) notes.push(normalizedSlideData.resolvedVisual.attribution,normalizedSlideData.resolvedVisual.originalUrl || '');
+        if (notes.length) slide.addNotes(notes.join('\n'));
+
     } catch (error) {
 
-        throw new Error(
+        throw Object.assign(new Error(
             `Failed to render slide ${
                 index + 1
             } with layout "${
                 normalizedSlideData.layoutId
-            }": ${error.message}`
-        );
+            }": ${error.message}`,{cause:error}
+        ),{code:error.code||'PRESENTATION_RENDER_FAILED',stage:'presentation-rendering',slideNumber:index+1,field:error.field,maxCharacters:error.maxCharacters});
 
     }
 

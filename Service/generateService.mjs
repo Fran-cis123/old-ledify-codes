@@ -1,4 +1,11 @@
+import { webpageLayoutService } from './webpageLayoutService.mjs';
+import { webpageThemeService } from './webpageThemeService.mjs';
+import { webpageRenderer } from '../renderer/webpage/webpageRenderer.mjs';
+import { webpageArtifactService } from './webpageArtifactService.mjs';
 import { aiService } from "./aiService.mjs";
+import { resolvePresentationVisuals } from './visual/presentationVisuals.mjs';
+import { createDiagramPlanner } from './visual/diagramPlanner.mjs';
+import { documentArtifactService } from './document/documentArtifactService.mjs';
 
 import {
     presentationLayoutService
@@ -25,8 +32,11 @@ export const generateService = async (
     inputType,
     input,
     outputType,
-    context = {}
+    context = {},
+    options = {}
 ) => {
+    const started=performance.now(),timings={};
+    const finish=result=>({...result,timings:{...timings,totalMs:Math.round(performance.now()-started)}});
 
     // =====================================================
     // 1. GENERATE STRUCTURED CONTENT WITH AI
@@ -36,13 +46,30 @@ export const generateService = async (
         inputType,
         input,
         outputType,
-        context
+        context, options.ai || {}
     );
+    timings.aiMs=Math.round(performance.now()-started);
+    const artifactStarted=performance.now();
 
 
     // =====================================================
     // 2. PRESENTATION-SPECIFIC PROCESSING
     // =====================================================
+
+    if (outputType === 'webpage') {
+        const page = webpageThemeService(webpageLayoutService(aiResult.generatedContent), context);
+        const files = webpageRenderer(page);
+        const artifacts = await webpageArtifactService(files, options.artifacts);
+        timings.renderMs=Math.round(performance.now()-artifactStarted);
+        return finish({ ...aiResult, generatedContent: page, status: artifacts.status, artifacts,
+            warnings: [...(page.limitations || []).map(message => ({ code: 'STATIC_SCOPE_LIMITATION', message })), ...artifacts.warnings] });
+    }
+    if (outputType === 'document') {
+        const document=aiResult.generatedContent;
+        const artifacts=await documentArtifactService(document,{instructions:inputType==='prompt'?input:context.instructions,...context},options.document);
+        timings.renderMs=Math.round(performance.now()-artifactStarted);
+        return finish({...aiResult,status:artifacts.status,documentId:artifacts.id,previewUrl:artifacts.previewUrl,downloadUrl:artifacts.downloadUrl,artifacts,warnings:document.warnings||[]});
+    }
 
     if (outputType === "presentation") {
 
@@ -106,7 +133,7 @@ export const generateService = async (
 
         const presentationWithLayouts =
             presentationLayoutService(
-                aiResult.generatedContent
+                aiResult.generatedContent, resolvedContext
             );
 
 
@@ -131,7 +158,7 @@ export const generateService = async (
         //
         // =================================================
 
-        const rendererReadyPresentation =
+        let rendererReadyPresentation =
             presentationRendererService(
                 presentationWithTheme
             );
@@ -153,9 +180,16 @@ export const generateService = async (
         //
         // =================================================
 
+        const visualStarted=performance.now();
+        timings.layoutMs=Math.round(visualStarted-artifactStarted);
+        rendererReadyPresentation = await resolvePresentationVisuals(rendererReadyPresentation, resolvedContext,
+            {diagramPlanner:createDiagramPlanner(options.ai),...options.visuals});
+        timings.visualsMs=Math.round(performance.now()-visualStarted);
+        const renderStarted=performance.now();
+
         const preview =
             await previewRenderer(
-                rendererReadyPresentation
+                rendererReadyPresentation, options.preview
             );
 
 
@@ -163,18 +197,21 @@ export const generateService = async (
         // 7. RETURN FINAL PRESENTATION RESULT
         // =================================================
 
-        return {
+        timings.renderMs=Math.round(performance.now()-renderStarted);
+        return finish({
 
             ...aiResult,
+            status: preview.status === 'completed' && rendererReadyPresentation.warnings.length ? 'completed_with_warnings' : preview.status,
+            warnings: [...rendererReadyPresentation.warnings, ...preview.warnings],
 
             resolvedContext,
 
             generatedContent:
-                presentationWithTheme,
+                rendererReadyPresentation,
 
             preview
 
-        };
+        });
 
     }
 
@@ -190,6 +227,6 @@ export const generateService = async (
     //
     // =====================================================
 
-    return aiResult;
+    return finish(aiResult);
 
 };

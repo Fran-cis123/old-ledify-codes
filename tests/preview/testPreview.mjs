@@ -1,4 +1,5 @@
 import path from "path";
+import assert from "node:assert/strict";
 import {
     fileURLToPath
 } from "url";
@@ -245,7 +246,7 @@ const testPresentation = {
 
             content: {
 
-                keyPoints: [
+                items: [
 
                     {
                         title:
@@ -278,6 +279,27 @@ const testPresentation = {
             speakerNotes:
                 ""
 
+        },
+        {
+            slideNumber: 3, slideType: "focused-explanation", layoutId: "focused-statement",
+            title: "How water moves", content: { textContent: {
+                heading: "Solar energy drives evaporation",
+                body: "Sunlight warms surface water, turning liquid water into vapor. As the vapor rises and cools, it condenses into droplets that form clouds."
+            } }
+        },
+        {
+            slideNumber: 4, slideType: "summary", layoutId: "focused-statement",
+            title: "Key takeaways", content: { summary: {
+                statement: "Water circulates continuously through the atmosphere, land, and oceans.",
+                points: ["Evaporation moves water into the atmosphere.", "Condensation forms clouds.", "Precipitation returns water to the surface."]
+            } }
+        },
+        {
+            slideNumber: 5, slideType: "conclusion", layoutId: "focused-statement",
+            title: "A connected system", content: { conclusion: {
+                statement: "The water cycle connects Earth's water stores.",
+                supportingPoints: ["Solar energy powers evaporation.", "Gravity moves precipitation and runoff toward lower ground."]
+            } }
         }
 
     ]
@@ -311,6 +333,8 @@ const runTest = async () => {
         // SUCCESS
         // =================================================
 
+        assert.equal(result.status, "completed", JSON.stringify(result.warnings));
+        assert.equal(result.previewCount, testPresentation.slides.length);
         console.log(
             "✅ previewRenderer completed successfully.\n"
         );

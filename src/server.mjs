@@ -1,30 +1,19 @@
 import "dotenv/config";
 
-import express from "express";
 import mongoose from "mongoose";
-import cors from "cors";
-import router from "../route/generateRoute.mjs";
+import { createApp } from './app.mjs';
 
 // dotenv.config();
 
-const app = express();
+const app = createApp();
 
 const PORT = process.env.PORT;
 
 const MONGO_URL = process.env.MONGO_URL;
 
 
-app.use(express.json());
-app.use(cors());
-app.use("/api", router);
-
-app.get("/", (req , res)=> {
-    return res.send("Server is loading......")
-});
-
 const startServer = async () => {
     try { 
-        console.log(MONGO_URL)
         await mongoose.connect(MONGO_URL);
 
         console.log("MongoDB is successfully connected");

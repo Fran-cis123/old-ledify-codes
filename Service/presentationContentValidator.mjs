@@ -1,3 +1,5 @@
+import { SLIDE_TYPE_CONTENT_MAP, PRESENTATION_COLLECTION_LIMITS as limits } from "../templates/presentation/slideContentSchemas.mjs";
+
 // =========================================================
 // PRESENTATION CONTENT VALIDATOR
 // =========================================================
@@ -49,75 +51,7 @@
 //
 // =========================================================
 
-const SLIDE_TYPE_CONTENT_MAP = {
 
-    title:
-        "titleContent",
-
-    "section-divider":
-        "sectionContent",
-
-    agenda:
-        "items",
-
-    "key-points":
-        "items",
-
-    "focused-explanation":
-        "textContent",
-
-    "text-visual":
-        "visualContent",
-
-    comparison:
-        "comparison",
-
-    relationship:
-        "relationship",
-
-    process:
-        "process",
-
-    timeline:
-        "timeline",
-
-    roadmap:
-        "roadmap",
-
-    "data-chart":
-        "chart",
-
-    statistics:
-        "statistics",
-
-    table:
-        "table",
-
-    cards:
-        "cards",
-
-    quote:
-        "quote",
-
-    "case-study":
-        "caseStudy",
-
-    recommendation:
-        "items",
-
-    "next-steps":
-        "items",
-
-    "call-to-action":
-        "callToAction",
-
-    summary:
-        "summary",
-
-    conclusion:
-        "conclusion"
-
-};
 
 // =========================================================
 // NON-EMPTY STRING CHECK
@@ -286,37 +220,13 @@ const HARD_WORD_LIMITS = {
 // =========================================================
 
 const HARD_COLLECTION_LIMITS = {
-
-    slides: 30,
-
-    items: 8,
-
-    cards: 8,
-
-    comparisonItems: 6,
-    comparisonPointsPerItem: 7,
-
-    relationshipNodes: 10,
-    relationships: 16,
-
-    processSteps: 9,
-
-    timelineEvents: 9,
-
-    roadmapPhases: 9,
-
-    statistics: 8,
-
-    chartLabels: 15,
-    chartDatasets: 8,
-
-    tableColumns: 8,
-    tableRows: 15,
-
-    summaryPoints: 8,
-
-    conclusionPoints: 8
-
+    slides: 12, items: limits.items, cards: limits.cards,
+    comparisonItems: limits['comparison.items'], comparisonPointsPerItem: limits['comparison.items.points'],
+    relationshipNodes: limits['relationship.nodes'], relationships: limits['relationship.relationships'],
+    processSteps: limits['process.steps'], timelineEvents: limits['timeline.events'], roadmapPhases: limits['roadmap.phases'],
+    statistics: limits.statistics, chartLabels: limits['chart.labels'], chartDatasets: limits['chart.datasets'],
+    tableColumns: limits['table.columns'], tableRows: limits['table.rows'],
+    summaryPoints: limits['summary.points'], conclusionPoints: limits['conclusion.supportingPoints']
 };
 
 
@@ -775,6 +685,20 @@ const validateSlide = (
     // =====================================================
     // SEMANTIC COMPATIBILITY
     // =====================================================
+
+    const bodyCollections = {
+        items: slide.content.items, cards: slide.content.cards,
+        'process.steps': slide.content.process?.steps, 'timeline.events': slide.content.timeline?.events,
+        'roadmap.phases': slide.content.roadmap?.phases
+    };
+    for (const [field, entries] of Object.entries(bodyCollections)) {
+        if (Array.isArray(entries)) entries.forEach((item, i) => {
+            if (!isNonEmptyString(item?.description)) errors.push(`${prefix} content.${field}[${i}].description must contain meaningful text`);
+        });
+    }
+    if (slide.content.textContent && !isNonEmptyString(slide.content.textContent.body)) {
+        errors.push(`${prefix} content.textContent.body must contain meaningful text`);
+    }
 
     validateSlideTypeCompatibility(
         slide,
@@ -3855,6 +3779,8 @@ if (
     return;
 }
 
+    const sourceNumbers = new Set(extractNumericClaims(sourceText));
+
     const strings =
         collectStrings(
             presentation
@@ -4733,3 +4659,14 @@ const getMeaningfulTokens = (
         );
 
 };
+
+export function validateSlideContent(slide) {
+    const errors = [];
+    validateSlide(slide, (slide?.slideNumber || 1) - 1, errors);
+    validateMalformedText({ slides: [slide] }, errors);
+    if (errors.length) {
+        const message = errors.slice(0, 15).join('; ');
+        throw Object.assign(new Error(message), { field: message.match(/content\.[a-zA-Z0-9_.\[\]]+/)?.[0], slideNumber: slide?.slideNumber });
+    }
+    return true;
+}

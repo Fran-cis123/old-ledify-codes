@@ -1,5 +1,6 @@
 import { PDFParse } from "pdf-parse";
 import mammoth from "mammoth";
+import { validateUploadedFile, uploadError } from './input/fileValidation.mjs';
 
 export const fileService = async (file) => {
 
@@ -7,6 +8,7 @@ export const fileService = async (file) => {
         throw new Error("No file was uploaded");
     }
 
+    await validateUploadedFile(file);
     let extractedText;
 
     // PDF
@@ -22,6 +24,8 @@ export const fileService = async (file) => {
 
             extractedText = result.text?.trim();
 
+        } catch (error) {
+            throw uploadError('Unable to read the PDF. Upload a valid, unencrypted PDF document.');
         } finally {
 
             await parser.destroy();
@@ -35,19 +39,10 @@ export const fileService = async (file) => {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ) {
 
-        const result = await mammoth.extractRawText({
-            buffer: file.buffer
-        });
-
-        extractedText = result.value?.trim();
-    }
-
-    // TXT
-    else if (file.mimetype === "text/plain") {
-
-        extractedText = file.buffer
-            .toString("utf-8")
-            .trim();
+        try {
+            const result = await mammoth.extractRawText({buffer: file.buffer});
+            extractedText = result.value?.trim();
+        } catch { throw uploadError('Unable to extract text from the Word document.'); }
     }
 
     else {
@@ -58,8 +53,8 @@ export const fileService = async (file) => {
     }
 
     if (!extractedText) {
-        throw new Error(
-            "No readable text was found in the document"
+        throw uploadError(
+            "No readable text was found in the document. Scanned PDFs must be processed with OCR before uploading."
         );
     }
 

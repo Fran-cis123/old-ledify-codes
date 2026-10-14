@@ -4,30 +4,39 @@
   "description": "",
   "main": "server.mjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test --test-concurrency=1 tests/regression/*.test.mjs",
     "start:dev": "nodemon ./src/server.mjs",
-    "start": "node ./src/server.mjs"
+    "start": "node ./src/server.mjs",
+    "test:preview": "node tests/preview/testPreview.mjs",
+    "test:webpage:samples": "node tests/webpage/samples.mjs",
+    "test:webpage:browser": "node tests/webpage/browser.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "devDependencies": {
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "mongoose": "^9.10.2",
     "nodemon": "^3.1.14"
   },
   "dependencies": {
-    "@google/genai": "^2.24.0",
+    "@google/genai": "^2.28.0",
+    "@napi-rs/canvas": "0.1.80",
+    "@openrouter/sdk": "^1.4.25",
     "cheerio": "^1.2.0",
+    "cors": "^2.8.6",
+    "docx": "9.6.1",
     "dotenv": "^18.0.3",
+    "express": "^5.2.1",
+    "ipaddr.js": "1.9.1",
+    "jszip": "3.10.2",
     "mammoth": "^1.13.0",
+    "mongoose": "^9.10.2",
     "multer": "^2.4.0",
     "parse": "^8.6.2",
+    "parse5": "7.3.0",
     "pdf": "^0.1.0",
     "pdf-parse": "^2.4.5",
-    "pdf-to-img": "^7.0.0",
+    "pdf-to-img": "^6.3.0",
     "pptxgenjs": "^4.0.1"
   }
 }

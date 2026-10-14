@@ -1,6 +1,8 @@
+
 import fs from "fs/promises";
 import path from "path";
 import crypto from "crypto";
+import { validateRenderedPptx } from './renderedOutputValidation.mjs';
 
 import {
     writePresentationFile
@@ -19,31 +21,21 @@ import {
 // PRESENTATION PREVIEW RENDERER
 // =========================================================
 //
-// Responsibility:
-//
-// Generates browser-displayable preview images for a
-// renderer-ready Ledify presentation.
-//
 // Pipeline:
 //
-// renderer-ready presentation
+// Renderer-ready presentation
 //          ↓
-// temporary .pptx
+// PowerPoint (.pptx)
 //          ↓
 // LibreOffice
 //          ↓
-// temporary .pdf
+// PDF (.pdf)
 //          ↓
-// pdf-to-img
+// PDF-to-IMG
 //          ↓
 // PNG preview images
 //
-// This renderer does NOT return the PowerPoint download.
-//
-// It prepares the slide images used by the preview layer.
-//
 // =========================================================
-
 
 export const previewRenderer = async (
     presentation,
@@ -58,176 +50,186 @@ export const previewRenderer = async (
         !presentation ||
         typeof presentation !== "object"
     ) {
-
         throw new Error(
             "Presentation is required for preview generation"
         );
-
     }
 
-
     if (
-        !Array.isArray(
-            presentation.slides
-        ) ||
+        !Array.isArray(presentation.slides) ||
         presentation.slides.length === 0
     ) {
-
         throw new Error(
             "Presentation must contain at least one slide for preview generation"
         );
-
     }
 
 
     // =====================================================
     // 2. RESOLVE PREVIEW ROOT DIRECTORY
     // =====================================================
-    //
-    // By default:
-    //
-    // <project>/generated/previews/
-    //
-    // The caller may provide another directory:
-    //
-    // previewRenderer(presentation, {
-    //     outputDirectory: "..."
-    // });
-    //
-    // =====================================================
 
     const previewRootDirectory =
         options.outputDirectory
-            ? path.resolve(
-                options.outputDirectory
-            )
+            ? path.resolve(options.outputDirectory)
             : path.resolve(
                 process.cwd(),
                 "generated",
                 "previews"
             );
 
-
     await fs.mkdir(
         previewRootDirectory,
-        {
-            recursive: true
-        }
+        { recursive: true }
     );
 
 
     // =====================================================
-    // 3. CREATE UNIQUE PREVIEW ID
-    // =====================================================
-    //
-    // Every preview gets its own directory.
-    //
-    // This prevents two users generating presentations at
-    // the same time from overwriting each other's files.
-    //
-    // Example:
-    //
-    // generated/previews/
-    //     6c10.../
-    //         presentation.pptx
-    //         presentation.pdf
-    //         slides/
-    //
+    // 3. CREATE UNIQUE PREVIEW DIRECTORY
     // =====================================================
 
-    const previewId =
-        crypto.randomUUID();
+    const previewId = crypto.randomUUID();
 
+    const previewDirectory = path.join(
+        previewRootDirectory,
+        previewId
+    );
 
-    const previewDirectory =
-        path.join(
-            previewRootDirectory,
-            previewId
-        );
-
-
-    const slidesDirectory =
-        path.join(
-            previewDirectory,
-            "slides"
-        );
-
+    const slidesDirectory = path.join(
+        previewDirectory,
+        "slides"
+    );
 
     await fs.mkdir(
         slidesDirectory,
-        {
-            recursive: true
-        }
+        { recursive: true }
     );
 
 
     // =====================================================
-    // 4. BUILD TEMPORARY FILE PATHS
+    // 4. BUILD FILE PATHS
     // =====================================================
 
-    const pptxPath =
-        path.join(
-            previewDirectory,
-            "presentation.pptx"
-        );
+    const pptxPath = path.join(
+        previewDirectory,
+        "presentation.pptx"
+    );
 
-
-    const pdfPath =
-        path.join(
-            previewDirectory,
-            "presentation.pdf"
-        );
+    const pdfPath = path.join(
+        previewDirectory,
+        "presentation.pdf"
+    );
 
 
     // =====================================================
-    // 5. CREATE PPTX
+    // 5. GENERATE POWERPOINT
     // =====================================================
 
     let pptxResult;
-
+    const stages = { pptx: "pending", pdf: "pending", png: "pending" };
+    const partialResult = (stage, error) => {
+        stages[stage] = "failed";
+        if (stage === "pdf") stages.png = "skipped";
+        console.error(`[PREVIEW ${previewId}] ${stage} failed:`, error);
+        return {
+            previewId, title: pptxResult.title,
+            status: "partial_success", stages,
+            slideCount: presentation.slides.length, previewCount: 0, slides: [],
+            warnings: [{ stage, code: `${stage.toUpperCase()}_CONVERSION_FAILED`,
+                message: stage === "pdf" ? "PowerPoint is available; PDF conversion failed." : "PowerPoint and PDF are available; slide previews failed.",
+                ...(error.pageNumber ? { pageNumber: error.pageNumber } : {}) }],
+            files: { previewDirectory, pptxPath: pptxResult.filePath,
+                pdfPath: stage === "png" ? pdfResult.pdfPath : null, slidesDirectory },
+            downloads: { pptx: `/api/presentations/${previewId}/download`,
+                pdf: stage === "png" ? `/api/presentations/${previewId}/pdf` : null }
+        };
+    };
 
     try {
 
-        pptxResult =
-            await writePresentationFile(
-                presentation,
-                pptxPath
-            );
+        pptxResult = await (options.converters?.writePresentationFile || writePresentationFile)(
+            presentation,
+            pptxPath
+        );
 
+        if (
+            !pptxResult ||
+            typeof pptxResult.filePath !== "string"
+        ) {
+            throw new Error(
+                "PowerPoint renderer did not return a valid file path"
+            );
+        }
+
+        const pptxStats = await fs.stat(
+            pptxResult.filePath
+        );
+
+        if (
+            !pptxStats.isFile() ||
+            pptxStats.size === 0
+        ) {
+            throw new Error(
+                "Generated PowerPoint file is empty or invalid"
+            );
+        }
+
+        if(!options.converters?.writePresentationFile) await validateRenderedPptx(pptxResult.filePath,presentation);
+        stages.pptx = "completed";
     } catch (error) {
 
-        throw new Error(
-            `Failed to create PowerPoint for preview: ${error.message}`
-        );
+        throw Object.assign(new Error(
+            `Failed to create PowerPoint for preview: ${error.message}`,
+            { cause: error }
+        ),{code:error.code||'PRESENTATION_RENDER_FAILED',stage:error.stage||'presentation-rendering',slideNumber:error.slideNumber,field:error.field,maxCharacters:error.maxCharacters});
 
     }
 
 
     // =====================================================
-    // 6. CONVERT PPTX TO PDF
+    // 6. CONVERT POWERPOINT TO PDF
     // =====================================================
 
     let pdfResult;
 
-
     try {
 
-        pdfResult =
-            await convertPptxToPdf({
-                pptxPath:
-                    pptxResult.filePath,
+        pdfResult = await (options.converters?.convertPptxToPdf || convertPptxToPdf)({
+            pptxPath: pptxResult.filePath,
+            pdfPath,
+            workingDirectory: previewDirectory
+        });
 
-                pdfPath,
+        if (
+            !pdfResult ||
+            typeof pdfResult.pdfPath !== "string"
+        ) {
+            throw new Error(
+                "PDF converter did not return a valid PDF path"
+            );
+        }
 
-                workingDirectory:
-                    previewDirectory
-            });
+        const pdfStats = await fs.stat(
+            pdfResult.pdfPath
+        );
+
+        if (
+            !pdfStats.isFile() ||
+            pdfStats.size === 0
+        ) {
+            throw new Error(
+                "Generated PDF file is empty or invalid"
+            );
+        }
+
+        console.log(
+            "[PREVIEW] PDF generated successfully"
+        );
+        stages.pdf = "completed";
 
     } catch (error) {
 
-        throw new Error(
-            `Failed to convert preview PowerPoint to PDF: ${error.message}`
-        );
+        return partialResult("pdf", error);
 
     }
 
@@ -238,23 +240,33 @@ export const previewRenderer = async (
 
     let previewImages;
 
-
     try {
 
-        previewImages =
-            await convertPdfToImages({
-                pdfPath:
-                    pdfResult.pdfPath,
+        previewImages = await (options.converters?.convertPdfToImages || convertPdfToImages)({
+            pdfPath: pdfResult.pdfPath,
+            outputDirectory: slidesDirectory
+        });
 
-                outputDirectory:
-                    slidesDirectory
-            });
+        if (
+            !Array.isArray(previewImages) ||
+            previewImages.length === 0
+        ) {
+            throw new Error(
+                "PDF converter did not generate any preview images"
+            );
+        }
+
+        console.log(
+            `[PREVIEW] Generated ${previewImages.length} PNG images`
+        );
+        if (previewImages.length !== presentation.slides.length) {
+            throw new Error(`Expected ${presentation.slides.length} previews, received ${previewImages.length}`);
+        }
+        stages.png = "completed";
 
     } catch (error) {
 
-        throw new Error(
-            `Failed to create slide preview images: ${error.message}`
-        );
+        return partialResult("png", error);
 
     }
 
@@ -262,82 +274,44 @@ export const previewRenderer = async (
     // =====================================================
     // 8. VERIFY SLIDE COUNT
     // =====================================================
-    //
-    // Normally:
-    //
-    // presentation slide count
-    //          ===
-    // generated preview image count
-    //
-    // If these differ, something happened during rendering
-    // or conversion and the frontend should not receive a
-    // silently incomplete preview.
-    //
-    // =====================================================
 
     if (
         previewImages.length !==
         presentation.slides.length
     ) {
-
         throw new Error(
             `Preview slide count mismatch. Expected ${presentation.slides.length} slide(s) but generated ${previewImages.length} preview image(s)`
         );
-
     }
 
 
     // =====================================================
     // 9. BUILD PREVIEW SLIDE METADATA
     // =====================================================
-    //
-    // IMPORTANT:
-    //
-    // filePath is an internal server filesystem path.
-    //
-    // We do NOT want the frontend depending directly on
-    // C:\Users\...\generated\...
-    //
-    // Later, the preview route will expose these images
-    // through HTTP URLs.
-    //
-    // For now we preserve filePath internally so the
-    // service/controller layer can locate the files.
-    //
-    // =====================================================
 
-    const slides =
-        previewImages.map(
-            (image, index) => {
+    const slides = previewImages.map(
+        (image, index) => {
 
-                const sourceSlide =
-                    presentation.slides[index];
+            const sourceSlide =
+                presentation.slides[index];
 
+            return {
+                slideNumber: image.slideNumber,
 
-                return {
+                slideType: sourceSlide.slideType,
 
-                    slideNumber:
-                        image.slideNumber,
+                layoutId: sourceSlide.layoutId,
 
-                    slideType:
-                        sourceSlide.slideType,
+                title: sourceSlide.title || "",
 
-                    layoutId:
-                        sourceSlide.layoutId,
+                fileName: image.fileName,
+                url: `/api/presentations/${previewId}/slides/${image.slideNumber}`,
 
-                    title:
-                        sourceSlide.title || "",
+                filePath: image.filePath
+            };
 
-                    fileName:
-                        image.fileName,
-
-                    filePath:
-                        image.filePath
-
-                };
-
-            }
-        );
+        }
+    );
 
 
     // =====================================================
@@ -345,41 +319,28 @@ export const previewRenderer = async (
     // =====================================================
 
     return {
-
         previewId,
+        status: "completed",
+        stages,
+        warnings: [],
+        previewCount: slides.length,
+        downloads: { pptx: `/api/presentations/${previewId}/download`, pdf: `/api/presentations/${previewId}/pdf` },
 
-        title:
-            pptxResult.title,
+        title: pptxResult.title,
 
-        slideCount:
-            slides.length,
+        slideCount: slides.length,
 
         slides,
 
-
-        // -------------------------------------------------
-        // INTERNAL PATHS
-        // -------------------------------------------------
-        //
-        // These are useful to the backend but should not
-        // ultimately be exposed directly to the frontend.
-        //
-        // -------------------------------------------------
-
         files: {
-
             previewDirectory,
 
-            pptxPath:
-                pptxResult.filePath,
+            pptxPath: pptxResult.filePath,
 
-            pdfPath:
-                pdfResult.pdfPath,
+            pdfPath: pdfResult.pdfPath,
 
             slidesDirectory
-
         }
-
     };
 
 };

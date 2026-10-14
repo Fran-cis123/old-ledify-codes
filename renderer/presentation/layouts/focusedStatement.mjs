@@ -60,8 +60,12 @@ export const renderFocusedStatement = ({
     // 2. CANONICAL CONTENT
     // =====================================================
 
-    const text =
-        slideData?.content?.text || {};
+    const content = slideData?.content || {};
+    const synthesis = content.summary || content.conclusion;
+    const text = synthesis ? {
+        heading: slideData.title,
+        body: [synthesis.statement, ...(synthesis.points || synthesis.supportingPoints || [])].filter(Boolean).join("\n\n")
+    } : content.textContent || content.text || {};
 
 
     const heading =
@@ -87,33 +91,6 @@ export const renderFocusedStatement = ({
     // =====================================================
     // 3. SMALL SECTION LABEL
     // =====================================================
-
-    slide.addText(
-        formatLabel(
-            slideData?.slideType
-        ),
-        {
-            x: 0.85,
-            y: 0.72,
-            w: 4.8,
-            h: 0.28,
-
-            fontFace:
-                typography.bodyFamily,
-
-            fontSize: 9,
-
-            bold: true,
-
-            charSpacing: 1.3,
-
-            color:
-                colors.accentPrimary,
-
-            margin: 0
-        }
-    );
-
 
     // =====================================================
     // 4. ACCENT
@@ -282,20 +259,5 @@ const getText = (
 
 
     return value.trim();
-
-};
-
-
-// =========================================================
-// FORMAT LABEL
-// =========================================================
-
-const formatLabel = (
-    value = ""
-) => {
-
-    return String(value)
-        .replaceAll("-", " ")
-        .toUpperCase();
 
 };

@@ -1,0 +1,425 @@
+{
+  "outputType": "presentation",
+  "inferredContext": {
+    "userRole": "Academic educator or lecturer in biological sciences",
+    "purpose": "Provide a structured instructional lecture on the fundamentals of the human cardiovascular system for undergraduate students.",
+    "audience": "Undergraduate science students",
+    "topic": "Human cardiovascular system anatomy, circulation pathways, conduction, and functions",
+    "tone": "educational",
+    "keyInstructions": [
+      "Use exactly 8 slides total including opening and ending",
+      "Cover all eight explicitly requested topics: introduction, anatomy of the heart, cardiac chambers and valves, pulmonary circulation, systemic circulation, cardiac conduction system, functions of the cardiovascular system, conclusion",
+      "Preserve supplied facts, numbers, units, and physiological ranges without inventing external data",
+      "Use accurate labeled diagrams for anatomical structures"
+    ]
+  },
+  "strategyId": "lecture-teaching",
+  "title": "The Human Cardiovascular System",
+  "subtitle": "Anatomy, Circulation Circuits, and Electrophysiological Coordination",
+  "slides": [
+    {
+      "slideNumber": 1,
+      "slideType": "title",
+      "title": "The Human Cardiovascular System",
+      "subtitle": "Anatomy, Circulation Circuits, and Electrophysiological Coordination",
+      "objective": "Introduce the lecture topic and foundational scope of cardiovascular biology for undergraduate learners.",
+      "visualRequirement": {
+        "role": "background",
+        "kind": "texture",
+        "required": true,
+        "description": "Subtle warm ivory paper texture background suitable for an academic presentation theme.",
+        "searchQuery": "warm ivory paper texture minimalist light",
+        "altText": "Warm ivory background texture"
+      },
+      "content": {
+        "titleContent": {
+          "title": "The Human Cardiovascular System",
+          "subtitle": "Anatomy, Circulation Circuits, and Electrophysiological Coordination",
+          "supportingText": "An instructional overview of dual-circuit circulation, valvular mechanics, and cardiac electrical conduction."
+        }
+      }
+    },
+    {
+      "slideNumber": 2,
+      "slideType": "text-visual",
+      "title": "Anatomical Organization of the Heart",
+      "subtitle": "External orientation, muscular chambers, and mechanical tissue boundaries",
+      "objective": "Examine the core gross anatomical layout and muscular orientation of the four heart chambers.",
+      "visualRequirement": {
+        "role": "foreground",
+        "kind": "diagram",
+        "required": true,
+        "description": "Accurate anatomical diagram showing the external and coronal structure of the heart, highlighting right and left sides.",
+        "searchQuery": "human heart anatomy labeled coronal diagram",
+        "altText": "Labeled diagram of the human heart showing muscular walls and exterior orientation"
+      },
+      "content": {
+        "visualContent": {
+          "text": "The human heart is organized into four chambers: right/left atria for receiving blood and right/left ventricles for pumping. A thicker left ventricular myocardium handles the high-resistance workload of systemic ejection.",
+          "visual": {
+            "type": "diagram",
+            "description": "Coronal schematic of four heart chambers highlighting left ventricular myocardial thickness.",
+            "searchQuery": "human heart four chambers coronal diagram",
+            "diagram": {
+              "kind": "labeled",
+              "nodes": [
+                {
+                  "id": "ra",
+                  "label": "Right Atrium",
+                  "description": "Receives systemic venous return"
+                },
+                {
+                  "id": "rv",
+                  "label": "Right Ventricle",
+                  "description": "Pumps blood to pulmonary circuit"
+                },
+                {
+                  "id": "la",
+                  "label": "Left Atrium",
+                  "description": "Receives oxygenated pulmonary return"
+                },
+                {
+                  "id": "lv",
+                  "label": "Left Ventricle",
+                  "description": "Thick muscle pumps to systemic circuit"
+                }
+              ],
+              "edges": [
+                {
+                  "from": "ra",
+                  "to": "rv",
+                  "label": "Flow to RV"
+                },
+                {
+                  "from": "la",
+                  "to": "lv",
+                  "label": "Flow to LV"
+                },
+                {
+                  "from": "rv",
+                  "to": "lv",
+                  "label": "Central septum"
+                }
+              ],
+              "caption": "Simplified coronal schematic illustrating chamber layout and relative muscular wall thickness."
+            }
+          }
+        }
+      }
+    },
+    {
+      "slideNumber": 3,
+      "slideType": "focused-explanation",
+      "title": "Chamber Architecture and Valvular Mechanics",
+      "subtitle": "Atrioventricular and semilunar valves, chordae tendineae, and unidirectional flow",
+      "objective": "Detail the structural mechanics of the four cardiac valves and how chordae tendineae prevent retrograde flow during systole.",
+      "visualRequirement": {
+        "role": "foreground",
+        "kind": "diagram",
+        "required": true,
+        "description": "Scientific diagram of the tricuspid, mitral, aortic, and pulmonary valves with chordae tendineae and papillary muscles labeled.",
+        "searchQuery": "heart valves and chordae tendineae labeled anatomy diagram",
+        "altText": "Detailed diagram comparing atrioventricular and semilunar cardiac valves"
+      },
+      "content": {
+        "textContent": {
+          "heading": "Chamber Architecture and Valvular Mechanics",
+          "body": "Atrioventricular valves (tricuspid and mitral) use chordae tendineae anchored to papillary muscles to prevent leaflet prolapse during ventricular systole. Semilunar valves (pulmonary and aortic) guard ventricular outflow tracts without chordae. Unidirectional valve opening and closure coordinate diastolic filling and systolic ejection."
+        }
+      }
+    },
+    {
+      "slideNumber": 4,
+      "slideType": "process",
+      "title": "Pulmonary Circuit Architecture",
+      "subtitle": "Low-pressure transit from the right ventricle through alveolar capillaries to left atrium",
+      "objective": "Map the sequential hemodynamic path and respiratory gas exchange occurring within the pulmonary circulation.",
+      "visualRequirement": {
+        "role": "foreground",
+        "kind": "diagram",
+        "required": true,
+        "description": "Flow diagram tracing deoxygenated blood from the right ventricle through pulmonary arteries to the lungs and oxygenated return via pulmonary veins.",
+        "searchQuery": "pulmonary circulation pathway flow diagram labeled",
+        "altText": "Schematic of the pulmonary circuit showing flow from right ventricle to lungs and back to left atrium"
+      },
+      "content": {
+        "process": {
+          "steps": [
+            {
+              "stepNumber": 1,
+              "title": "Right Ventricular Ejection",
+              "description": "Deoxygenated blood enters pulmonary arteries from the right ventricle."
+            },
+            {
+              "stepNumber": 2,
+              "title": "Alveolar Gas Exchange",
+              "description": "Pulmonary capillaries release carbon dioxide and absorb oxygen."
+            },
+            {
+              "stepNumber": 3,
+              "title": "Pulmonary Venous Return",
+              "description": "Four pulmonary veins transport oxygenated blood into the left atrium."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "slideNumber": 5,
+      "slideType": "process",
+      "title": "Systemic Circulation and Peripheral Exchange",
+      "subtitle": "High-pressure arterial distribution, microvascular exchange, and venous return",
+      "objective": "Detail systemic blood distribution from the left ventricle through arteries, capillaries, and venous return to the right atrium.",
+      "visualRequirement": {
+        "role": "foreground",
+        "kind": "diagram",
+        "required": true,
+        "description": "Systemic circulation diagram contrasting muscular arteries, microvascular capillary beds, and capacitance veins returning to the right atrium.",
+        "searchQuery": "systemic vascular circuit arteries capillaries veins diagram",
+        "altText": "Illustration of systemic arterial distribution, capillary exchange, and venous return"
+      },
+      "content": {
+        "process": {
+          "steps": [
+            {
+              "stepNumber": 1,
+              "title": "Left Ventricular Ejection",
+              "description": "High-pressure oxygenated blood enters aorta to supply peripheral body tissues."
+            },
+            {
+              "stepNumber": 2,
+              "title": "Arterial Distribution",
+              "description": "Arterial vessels distribute blood from the aorta to peripheral capillary beds."
+            },
+            {
+              "stepNumber": 3,
+              "title": "Capillary Exchange",
+              "description": "Microvascular beds facilitate nutrient, gas, and metabolic waste exchange."
+            },
+            {
+              "stepNumber": 4,
+              "title": "Systemic Venous Return",
+              "description": "Deoxygenated blood returns via capacitance veins and venae cavae to right atrium."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "slideNumber": 6,
+      "slideType": "relationship",
+      "title": "Cardiac Conduction System",
+      "subtitle": "Pacemaker pacing, nodal delay, and rapid ventricular depolarization sequence",
+      "objective": "Explain the sequential electrical impulse transmission from the SA node through the AV node, bundle branches, and Purkinje fibres.",
+      "visualRequirement": {
+        "role": "foreground",
+        "kind": "diagram",
+        "required": true,
+        "description": "Labeled diagram of the cardiac conduction system showing SA node, AV node, bundle of His, bundle branches, and Purkinje network.",
+        "searchQuery": "cardiac conduction system labeled diagram SA AV node Purkinje",
+        "altText": "Labeled diagram illustrating the intrinsic electrical conduction network of the human heart"
+      },
+      "content": {
+        "relationship": {
+          "nodes": [
+            {
+              "id": "sa",
+              "label": "SA Node",
+              "description": "Primary intrinsic cardiac pacemaker"
+            },
+            {
+              "id": "av",
+              "label": "AV Node",
+              "description": "Delays impulse for atrial emptying"
+            },
+            {
+              "id": "his",
+              "label": "Bundle of His",
+              "description": "Transmits signal to ventricles"
+            },
+            {
+              "id": "branches",
+              "label": "Bundle Branches",
+              "description": "Directs signal through septum"
+            },
+            {
+              "id": "purkinje",
+              "label": "Purkinje Fibres",
+              "description": "Activates ventricles from apex"
+            }
+          ],
+          "relationships": [
+            {
+              "from": "sa",
+              "to": "av",
+              "label": "Sparks impulse"
+            },
+            {
+              "from": "av",
+              "to": "his",
+              "label": "Delays signal"
+            },
+            {
+              "from": "his",
+              "to": "branches",
+              "label": "Passes signal"
+            },
+            {
+              "from": "branches",
+              "to": "purkinje",
+              "label": "Spreads signal"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "slideNumber": 7,
+      "slideType": "cards",
+      "title": "Systemic Functions and Physiological Baselines",
+      "subtitle": "Gas transport, perfusion ranges, cardiac output, and cooperative homeostatic support",
+      "objective": "Synthesize the primary transport functions of the cardiovascular system alongside normal adult baseline metrics.",
+      "visualRequirement": {
+        "role": "none",
+        "kind": "none",
+        "required": false,
+        "description": "",
+        "searchQuery": "",
+        "altText": ""
+      },
+      "content": {
+        "cards": [
+          {
+            "title": "Substrate & Waste Transport",
+            "description": "Delivers oxygen and nutrients to tissues while removing capillary metabolic waste."
+          },
+          {
+            "title": "Acid-Base Homeostasis",
+            "description": "Supports systemic pH balance cooperatively with respiratory and renal systems."
+          },
+          {
+            "title": "Resting Heart Rate",
+            "description": "Maintains typical adult resting values between 60 and 100 beats per minute."
+          },
+          {
+            "title": "Resting Cardiac Output",
+            "description": "Generates a typical baseline cardiac output of approximately 5 L/min at rest."
+          }
+        ]
+      }
+    },
+    {
+      "slideNumber": 8,
+      "slideType": "conclusion",
+      "title": "Synthesis of Cardiovascular Coordination",
+      "subtitle": "Integrated coupling of structural anatomy, electrical synchronization, and hemodynamics",
+      "objective": "Summarize the overarching principles governing heart anatomy, conduction, and dual circulation loops.",
+      "visualRequirement": {
+        "role": "background",
+        "kind": "texture",
+        "required": true,
+        "description": "Matching subtle warm ivory texture providing visual consistency with the opening slide.",
+        "searchQuery": "warm ivory minimalist background texture",
+        "altText": "Ivory background texture for presentation closing"
+      },
+      "content": {
+        "conclusion": {
+          "statement": "Integrated anatomy, electrical timing, and valve mechanics drive effective dual-circuit perfusion.",
+          "supportingPoints": [
+            "Dual circuits balance low and high pressure flow.",
+            "Unidirectional valves prevent systolic backflow.",
+            "Sequential electrical timing coordinates pumping.",
+            "Bulk transport supports physiological homeostasis."
+          ]
+        }
+      }
+    }
+  ],
+  "requirements": [
+    {
+      "topic": "introduction",
+      "slideNumbers": [
+        1
+      ],
+      "essentialPoints": [
+        "Cardiovascular system consists of a muscular pump (heart) and a closed vascular network",
+        "Dual-circuit architecture couples pulmonary reoxygenation with systemic tissue perfusion"
+      ]
+    },
+    {
+      "topic": "anatomy of the heart",
+      "slideNumbers": [
+        2
+      ],
+      "essentialPoints": [
+        "Organization into four discrete chambers: right/left atria and right/left ventricles",
+        "Thicker left ventricular myocardium reflects high resistance workload of systemic ejection"
+      ]
+    },
+    {
+      "topic": "cardiac chambers and valves",
+      "slideNumbers": [
+        3
+      ],
+      "essentialPoints": [
+        "Tricuspid and mitral AV valves tethered by chordae tendineae to papillary muscles to prevent systolic prolapse",
+        "Pulmonary and aortic semilunar valves guard ventricular outflow tracts without chordae tendineae",
+        "Unidirectional valve opening and closure coordinate ventricular filling (diastole) and ejection (systole)"
+      ]
+    },
+    {
+      "topic": "pulmonary circulation",
+      "slideNumbers": [
+        4
+      ],
+      "essentialPoints": [
+        "Ejection from right ventricle into pulmonary trunk and pulmonary arteries toward alveolar beds",
+        "Capillary gas exchange releases carbon dioxide and absorbs oxygen",
+        "Oxygenated venous return via four pulmonary veins into the left atrium"
+      ]
+    },
+    {
+      "topic": "systemic circulation",
+      "slideNumbers": [
+        5
+      ],
+      "essentialPoints": [
+        "High-pressure ejection from left ventricle into the aorta to supply peripheral body tissues",
+        "Microvascular solute, nutrient, and metabolic waste exchange across capillary networks",
+        "Systemic venous capacitance return via venae cavae into the right atrium"
+      ]
+    },
+    {
+      "topic": "cardiac conduction system",
+      "slideNumbers": [
+        6
+      ],
+      "essentialPoints": [
+        "SA node initiates spontaneous action potentials as the primary intrinsic cardiac pacemaker",
+        "AV node delays electrical impulse to allow complete atrial emptying before ventricular contraction",
+        "Bundle of His, bundle branches, and Purkinje fibres rapidly activate ventricles from apex upward"
+      ]
+    },
+    {
+      "topic": "functions of the cardiovascular system",
+      "slideNumbers": [
+        7
+      ],
+      "essentialPoints": [
+        "Bulk delivery of respiratory gases, substrates, and metabolic waste products across capillary networks",
+        "Cooperative maintenance of physiological acid-base balance alongside renal and respiratory organ systems",
+        "Baseline adult parameters: typical resting heart rate of 60–100 beats/min and cardiac output of ~5 L/min"
+      ]
+    },
+    {
+      "topic": "conclusion",
+      "slideNumbers": [
+        8
+      ],
+      "essentialPoints": [
+        "Interdependence between mechanical valve integrity, sequential conduction, and hemodynamic balance",
+        "Dual circuit arrangement ensures distinct low-pressure pulmonary gas exchange and high-pressure systemic delivery"
+      ]
+    }
+  ]
+}

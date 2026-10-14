@@ -76,7 +76,7 @@ export const renderTitleSplit = ({
 
 
     const text =
-        content.text || {};
+        content.titleContent || content.text || {};
 
 
     const visualContent =
@@ -97,13 +97,13 @@ export const renderTitleSplit = ({
     const subtitle =
         getText(
             slideData?.subtitle ||
-            text.subheading
+            text.subtitle || text.subheading
         );
 
 
     const supportingText =
         getText(
-            text.body
+            text.supportingText || text.body
         );
 
 
@@ -158,34 +158,6 @@ export const renderTitleSplit = ({
     // =====================================================
     // 5. CATEGORY
     // =====================================================
-
-    slide.addText(
-        formatLabel(
-            slideData?.slideType ||
-            "presentation"
-        ),
-        {
-            x: 0.85,
-            y: 1.15,
-            w: 6.9,
-            h: 0.3,
-
-            fontFace:
-                typography.bodyFamily,
-
-            fontSize: 9,
-
-            bold: true,
-
-            charSpacing: 1.4,
-
-            color:
-                colors.accentPrimary,
-
-            margin: 0
-        }
-    );
-
 
     // =====================================================
     // 6. TITLE
@@ -371,20 +343,5 @@ const getText = (
 
 
     return value.trim();
-
-};
-
-
-// =========================================================
-// FORMAT LABEL
-// =========================================================
-
-const formatLabel = (
-    value = ""
-) => {
-
-    return String(value)
-        .replaceAll("-", " ")
-        .toUpperCase();
 
 };

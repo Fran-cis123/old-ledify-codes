@@ -58,7 +58,7 @@ export const renderTitleCentered = ({
     // =====================================================
 
     const text =
-        slideData?.content?.text || {};
+        slideData?.content?.titleContent || slideData?.content?.text || {};
 
 
     // slideData.title remains the primary presentation
@@ -78,54 +78,19 @@ export const renderTitleCentered = ({
     const subtitle =
         getText(
             slideData?.subtitle ||
-            text.subheading
+            text.subtitle || text.subheading
         );
 
 
     const supportingText =
         getText(
-            text.body
+            text.supportingText || text.body
         );
 
 
     // =====================================================
     // 3. DECORATIVE TOP LABEL
     // =====================================================
-
-    if (slideData?.slideType) {
-
-        slide.addText(
-            formatLabel(
-                slideData.slideType
-            ),
-            {
-                x: 4.4,
-                y: 1.28,
-                w: 4.53,
-                h: 0.3,
-
-                fontFace:
-                    typography.bodyFamily,
-
-                fontSize: 9,
-
-                bold: true,
-
-                charSpacing: 1.4,
-
-                color:
-                    colors.accentPrimary,
-
-                align: "center",
-
-                margin: 0,
-
-                fit: "shrink"
-            }
-        );
-
-    }
-
 
     // =====================================================
     // 4. MAIN TITLE
@@ -285,20 +250,5 @@ const getText = (
 
 
     return value.trim();
-
-};
-
-
-// =========================================================
-// FORMAT LABEL
-// =========================================================
-
-const formatLabel = (
-    value = ""
-) => {
-
-    return String(value)
-        .replaceAll("-", " ")
-        .toUpperCase();
 
 };

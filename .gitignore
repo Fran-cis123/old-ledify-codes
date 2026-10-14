@@ -1,2 +1,13 @@
 node_modules/
 .env
+generated/
+website-demo/
+
+# Local rendering output and application diagnostics (keep tracked fixtures).
+test-current-pdf/
+test-existing-pdf-images/
+test-pipeline-output*/
+test-previews*/
+tests/preview/output/
+**/libreoffice-profile/
+*.log

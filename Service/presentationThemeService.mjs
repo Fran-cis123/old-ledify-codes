@@ -1,5 +1,6 @@
 import {
-    getThemesForStrategy
+    getThemesForStrategy,
+    presentationThemes
 } from "../templates/presentation/presentationThemes.mjs";
 
 import {
@@ -181,7 +182,7 @@ const selectTheme = ({
     ) {
 
         const requestedThemeExists =
-            compatibleThemes.find(
+            presentationThemes.find(
                 (theme) =>
                     theme.id === requestedTheme
             );
@@ -190,7 +191,7 @@ const selectTheme = ({
         if (!requestedThemeExists) {
 
             throw new Error(
-                `Theme "${requestedTheme}" is not compatible with strategy "${strategyId}"`
+                `Unknown presentation theme "${requestedTheme}"`
             );
 
         }
