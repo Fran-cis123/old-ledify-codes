@@ -11,6 +11,12 @@ Generate presentations, editable Word documents and static webpages from text pr
 
 The API defaults to `http://localhost:5000`. A local composer, where enabled by the application, is available at `/composer`. Generated artifacts live under `generated/`; that directory and `.env` are excluded from Git.
 
+## Render environment
+
+Set `MONGO_URL` in Render to the MongoDB Atlas Drivers connection URI itself, beginning `mongodb+srv://` (or `mongodb://` for a reachable standard deployment). Do not paste surrounding quotes, a `MONGO_URL=` assignment, a `mongosh` command or a Postgres connection URL. URL-encode special characters in the database username/password; do not change the database password merely to fix URI formatting. Keep the URI and Gemini API key in Render environment variables, never Git.
+
+The server also accepts `MONGODB_URI` or `MONGO_URI` when `MONGO_URL` is absent. Startup validates URI syntax without logging credentials and binds to `0.0.0.0` on Render's supplied `PORT`. Configure Atlas network access for the service's outbound addresses. Linux presentation rendering requires Linux LibreOffice/Poppler executables; local Windows executable paths cannot be reused on Render.
+
 ## Unified generation
 
 `POST /api/generate` accepts JSON without an attachment or multipart form-data with one PDF/DOCX `file`. Supply `outputType` as `presentation`, `document` or `webpage`, plus at least one of `textPrompt`, `urlPrompt` or `file`. All nonempty combinations are supported. Existing input-specific routes remain available.
