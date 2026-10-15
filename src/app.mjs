@@ -4,10 +4,6 @@ import cors from 'cors';
 
 import { createGenerationRouter } from '../route/generateRoute.mjs';
 
-import {fileURLToPath} from 'node:url';
-
-const composerRoot=fileURLToPath(new URL('../frontend/',import.meta.url));
-
 // Separate application construction from the MongoDB/listen lifecycle so the
 // actual production middleware can be exercised with injected test services.
 
@@ -16,11 +12,7 @@ export function createApp(options={}) {
     app.use(express.json({limit:'16mb'}));
     app.use(cors());
     app.use('/api',createGenerationRouter(options));
-    app.use('/composer-assets',express.static(composerRoot,{index:false,dotfiles:'deny'}));
-    app.get(['/', '/composer'],(req,res)=>{
-        res.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'");
-        res.sendFile('index.html',{root:composerRoot});
-    });
+    app.get('/',(req,res)=>res.json({message:'Ledify backend API',generationEndpoint:'/api/generate'}));
 
     app.use((error,req,res,next)=>{
         if(res.headersSent)return next(error);

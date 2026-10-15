@@ -1,0 +1,16 @@
+{
+  "watch": [
+    "src",
+    "controller",
+    "Service",
+    "middleWares",
+    "model",
+    "renderer",
+    "route",
+    "templates",
+    "package.json",
+    "nodemon.json"
+  ],
+  "ext": "js,mjs,cjs,json",
+  "ignore": ["generated/**", "tests/**", "node_modules/**"]
+}

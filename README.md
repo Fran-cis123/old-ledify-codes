@@ -9,7 +9,11 @@ Generate presentations, editable Word documents and static webpages from text pr
 3. Install LibreOffice and Poppler for presentation PDF/PNG rendering. Put their executables on PATH or configure `LIBREOFFICE_PATH` and `PDFTOPPM_PATH`. Word generation does not require a PDF converter.
 4. Run `npm start` or `npm run start:dev`.
 
-The API defaults to `http://localhost:5000`. A local composer, where enabled by the application, is available at `/composer`. Generated artifacts live under `generated/`; that directory and `.env` are excluded from Git.
+The API defaults to `http://localhost:5000`. `GET /` returns JSON identifying the backend and its generation endpoint. This repository does not serve an application frontend; the frontend developer owns the composer and result interface. Generated-output preview and download routes remain available for integration. Generated artifacts live under `generated/`; that directory and `.env` are excluded from Git.
+
+If local startup reports `MONGO_DNS_FAILED` and public DNS resolvers have been verified reachable, optionally set `LEDIFY_DNS_SERVERS=1.1.1.1,8.8.8.8` in your local `.env` and restart. This changes Node DNS resolution for Ledify only, without changing the computer's network configuration. Leave it unset on networks that require their own DNS resolver. It does not bypass Atlas authentication or network access rules.
+
+Development uses `nodemon.json` to watch application code only. Generated documents, webpage files, JSON metadata and test output must not restart the server while requests are running. After changing the watcher configuration or `.env`, stop the existing development process and run `npm run start:dev` again. `npm start` runs without automatic restarts.
 
 ## Render environment
 

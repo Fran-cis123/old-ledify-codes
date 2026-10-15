@@ -2,7 +2,7 @@ import "dotenv/config";
 
 import mongoose from "mongoose";
 import { createApp } from './app.mjs';
-import { readServerConfig, safeStartupError } from './serverConfig.mjs';
+import { readServerConfig, safeStartupError, configureMongoDns } from './serverConfig.mjs';
 
 // dotenv.config();
 
@@ -10,6 +10,7 @@ import { readServerConfig, safeStartupError } from './serverConfig.mjs';
 const startServer = async () => {
     try { 
         const {mongoUrl,port,host}=readServerConfig();
+        configureMongoDns();
         const app=createApp();
         await mongoose.connect(mongoUrl,{serverSelectionTimeoutMS:15000});
 
