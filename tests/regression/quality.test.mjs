@@ -9,6 +9,44 @@ import { SLIDE_TYPE_CONTENT_MAP } from '../../templates/presentation/slideConten
 import { fixtures } from '../fixtures/presentationContent.mjs';
 import { urlService } from '../../Service/urlService.mjs';
 import { pdfSource } from '../fixtures/uploadFiles.mjs';
+import {repairPresentationValidation,validateCompletedPresentation} from '../../Service/ai/presentationValidation.mjs';
+
+test('approved outline objectives prevent false topic drift without admitting unrelated slide bodies',()=>{
+    const presentation={outputType:'presentation',title:'Government',inferredContext:{topic:'Government'},slides:[
+        {slideNumber:1,slideType:'title',title:'Government',content:{titleContent:{title:'Government',subtitle:'Public institutions and civic roles',supportingText:'A practical introduction.'}}},
+        {slideNumber:2,slideType:'cards',title:'Core Functions of Governance',content:{cards:[
+            {title:'Maintaining Order',description:'Establishing legal frameworks and law enforcement to ensure public safety.'},
+            {title:'Providing Public Goods',description:'Delivering essential infrastructure, public education, and health services.'},
+            {title:'Protecting Rights',description:'Safeguarding individual freedoms, equal justice, and constitutional liberties.'},
+            {title:'National Security',description:'Defending territorial sovereignty and foreign interests from external threats.'}
+        ]}}
+    ]};
+    const source={inputType:'prompt',input:'Explain government.',plannedSlides:[{slideNumber:2,title:'Core Functions of Governance',objective:'Survey the responsibilities of government including maintaining order, providing public goods, and defending rights.'}]};
+    assert.throws(()=>validateCompletedPresentation(presentation,{inputType:source.inputType,input:source.input}),/drifted/);
+    assert.doesNotThrow(()=>validateCompletedPresentation(presentation,source));
+    presentation.slides[1]={slideNumber:2,slideType:'focused-explanation',title:'Preparing artisan bread',content:{textContent:{heading:'Baking sourdough',body:'Combine flour water yeast salt sugar butter eggs milk oats seeds nuts berries cinnamon vanilla honey chocolate raisins citrus zest cocoa almonds hazelnuts rye barley bran ginger nutmeg cloves cardamom sesame poppy coconut walnuts pecans pistachios dates figs apricots.'}}};
+    assert.throws(()=>validateCompletedPresentation(presentation,source),/drifted/);
+});
+
+const duplicateDeck=()=>({outputType:'presentation',title:'Content review',slides:[
+    {slideNumber:1,slideType:'title',title:'Content review',content:{titleContent:structuredClone(fixtures.titleContent)}},
+    ...[2,3].map(slideNumber=>({slideNumber,slideType:'focused-explanation',title:'Careful source review',content:{textContent:structuredClone(fixtures.textContent)}}))
+]});
+
+test('whole-presentation validation repairs the duplicate slide rather than discarding a generated deck',async()=>{
+    const presentation=duplicateDeck(),repaired=[];
+    await repairPresentationValidation({presentation,source:{},requestId:'fixture',repairSlide:async(slide,instructions)=>{
+        repaired.push(slide.slideNumber);assert.match(instructions,/duplicates slide/);
+        return {...slide,title:'Communicating reviewed evidence',content:{textContent:{heading:'Explain the findings',body:'Communicate the reviewed evidence clearly so readers can understand the conclusions and their limitations.'}}};
+    }});
+    assert.deepEqual(repaired,[3]);assert.equal(presentation.slides.length,3);
+});
+
+test('unsuccessful whole-presentation repairs stop after two rounds and retain safe diagnostics',async()=>{
+    let attempts=0;
+    await assert.rejects(repairPresentationValidation({presentation:duplicateDeck(),source:{},requestId:'fixture',repairSlide:async slide=>{attempts++;return slide;}}),error=>error.code==='AI_SCHEMA_VALIDATION_FAILED'&&error.stage==='presentation-validation'&&error.validationRule==='PRESENTATION_CONTENT'&&error.slideNumber===3);
+    assert.equal(attempts,2);
+});
 
 test('count defaults, explicit fields, natural language and actionable limits', () => {
     assert.deepEqual(resolveSlideCount('Explain water'), { min: 8, max: 10, source: 'default' });

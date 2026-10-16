@@ -57,7 +57,24 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
         } catch (error) {
             if (record) { record.status = 'failed'; try { await record.save(); } catch {} }
             const code = error.code || 'GENERATION_FAILED';
-            console.error('[GENERATION]',JSON.stringify({errorCode:code,stage:error.stage||'generation',requestId:error.requestId,slideNumber:error.slideNumber,sectionId:error.sectionId,validationRule:error.validationRule,field:error.field,maxCharacters:error.maxCharacters,lastErrorCode:error.lastErrorCode}));
+            console.error('[GENERATION]',JSON.stringify({errorCode:code,stage:error.stage||'generation',requestId:error.requestId,slideNumber:error.slideNumber,sectionId:error.sectionId,validationRule:error.validationRule,field:error.field,maxCharacters:error.maxCharacters,lastErrorCode:error.lastErrorCode,providerStatus:error.providerStatus,providerReason:error.providerReason,model:error.model}));
+            if(code==='AI_PROVIDER_ERROR'||code==='AI_PROVIDER_TRANSIENT'||code==='AI_RETRY_EXHAUSTED'&&error.lastErrorCode==='AI_PROVIDER_TRANSIENT'){
+                const reasons={
+                    INVALID_API_KEY:'Gemini rejected the server API key. Verify GEMINI_API_KEY in the deployed service environment.',
+                    API_KEY_RESTRICTED:'The server Gemini API key restrictions block this service. Verify the key restrictions in Google AI Studio or Google Cloud.',
+                    PERMISSION_DENIED:'Gemini denied this service access. Verify the deployed API key permissions and project configuration.',
+                    MODEL_NOT_FOUND:'The configured Gemini model is unavailable. Verify the deployed GEMINI model settings against the models available to the server API key.',
+                    REGION_UNSUPPORTED:'Gemini is unavailable from this service region. Use a supported deployment region.',
+                    QUOTA_OR_BILLING:'Gemini quota or billing currently prevents generation. Check the server project quota and billing.',
+                    REQUEST_REJECTED:'Gemini rejected the generation request. Check the server model configuration and request schema.',
+                    PROVIDER_UNAVAILABLE:'Gemini is temporarily unavailable. Please retry shortly.',
+                    PROVIDER_CONNECTION_FAILED:'The server could not connect to Gemini. Check service network connectivity and retry.'
+                };
+                const providerMessage=reasons[error.providerReason]||'The AI provider could not complete generation. Check the server provider configuration.';
+                const unavailable=code!=='AI_PROVIDER_ERROR'||error.providerReason==='QUOTA_OR_BILLING';
+                if(unavailable)res.set?.('Retry-After','30');
+                return res.status(unavailable?503:502).json({message:'AI provider could not complete generation',error:providerMessage,errorCode:code,stage:error.stage||'generation',requestId:error.requestId,providerStatus:error.providerStatus,providerReason:error.providerReason,model:error.model,lastErrorCode:error.lastErrorCode});
+            }
             if (code === 'UNSUPPORTED_FILE_FORMAT') return res.status(415).json({ message: 'Unsupported file format', error: error.message, errorCode: code });
             if(['SOURCE_URL_TOO_LARGE','SOURCE_URL_TEXT_TOO_LARGE'].includes(code))return res.status(413).json({message:error.message,error:error.message,errorCode:code,stage:error.stage,maxBytes:error.maxBytes,maxCharacters:error.maxCharacters});
             const clientError = /^(INVALID_|SOURCE_URL|WEBPAGE_VALIDATION|WEBPAGE_STATIC)/.test(code);

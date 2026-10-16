@@ -8,11 +8,12 @@ import { validateRenderContent } from '../renderer/presentation/professionalLayo
 import { randomUUID } from 'node:crypto';
 import { generateJsonWithRetry } from './ai/generateJsonWithRetry.mjs';
 import { generationConcurrency, generateInBatches } from './ai/concurrency.mjs';
-import { buildOutlinePrompt, buildSlidePrompt, validateOutline } from './ai/presentationPrompts.mjs';
+import { buildOutlinePrompt, buildSlidePrompt, validateOutline, outlineProviderSchema } from './ai/presentationPrompts.mjs';
 import { SLIDE_TYPE_CONTENT_MAP, PRESENTATION_COLLECTION_LIMITS } from '../templates/presentation/slideContentSchemas.mjs';
 import { validateSlideContent } from './presentationContentValidator.mjs';
 import { AiGenerationError } from './ai/responseValidation.mjs';
 import { validateQuantitativeGrounding } from './ai/sourceGrounding.mjs';
+import { repairPresentationValidation } from './ai/presentationValidation.mjs';
 import {
     GoogleGenAI,
     Type
@@ -1337,6 +1338,7 @@ if (isPresentation) {
         schema.required.push('requirements');
     }
 }
+let plannedSlides;
 let generatedContent = isPresentation && options.initialPresentation ? structuredClone(options.initialPresentation) : await run({
     stage: isPresentation ? 'presentation-outline' : 'content-generation',
     schema, outputType, strict: isPresentation,
@@ -1347,13 +1349,14 @@ let generatedContent = isPresentation && options.initialPresentation ? structure
         model: process.env.GEMINI_OUTLINE_MODEL || 'gemini-3.7-flash',
         contents: isPresentation ? buildOutlinePrompt(inputType, input, context, countPolicy) : prompt,
         config: {
-            responseMimeType: 'application/json', responseJsonSchema: schema,
+            responseMimeType: 'application/json', responseJsonSchema: isPresentation ? outlineProviderSchema(schema) : schema,
             maxOutputTokens: 8192,
             ...(isPresentation ? { thinkingConfig: { thinkingBudget: 1024 }, temperature: 0.3 } : {})
         }
     }
 });
 if (isPresentation) {
+    plannedSlides=generatedContent.slides.map(({slideNumber,title,objective})=>({slideNumber,title,objective}));
     canonicalTitles(generatedContent);
     const contentProperties = outputSchema.properties.slides.items.properties.content.properties;
     contentProperties.visualContent.properties.visual.properties.diagram = diagramSchema;
@@ -1413,6 +1416,7 @@ if (isPresentation) {
         repaired.content=await generateSlide(repaired,instructions);
         return repaired;
     };
+    await repairPresentationValidation({presentation:generatedContent,source:{inputType,input,context,plannedSlides},requestId,repairSlide:repairApprovedSlide});
     if (options.qualityReview !== false) generatedContent = await reviewAndRepairPresentation({ presentation: generatedContent,
         input, inputType, context, client, requestId, options, repairSlide: repairApprovedSlide });
     const references = Array.isArray(context.references) ? context.references.filter(ref => typeof ref.title === 'string' && /^https:\/\//.test(ref.url || '')) : [];
@@ -1457,11 +1461,12 @@ if (
         {
             inputType,
             input,
-            context
+            context,
+            plannedSlides
         }
     ); } catch (error) {
         throw new AiGenerationError("AI_SCHEMA_VALIDATION_FAILED", error.message,
-            { requestId, stage: "presentation-validation" });
+            { requestId, stage: "presentation-validation",validationRule:error.validationRule||'PRESENTATION_CONTENT' });
     }
 
 }

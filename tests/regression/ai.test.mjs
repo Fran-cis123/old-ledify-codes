@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseResponse, validateTextSafety, validateSchema } from "../../Service/ai/responseValidation.mjs";
 import { generateJsonWithRetry } from "../../Service/ai/generateJsonWithRetry.mjs";
-import { buildOutlinePrompt, buildSlidePrompt, validateOutline } from "../../Service/ai/presentationPrompts.mjs";
+import { buildOutlinePrompt, buildSlidePrompt, validateOutline, outlineProviderSchema } from "../../Service/ai/presentationPrompts.mjs";
 import { SLIDE_TYPE_CONTENT_MAP } from "../../templates/presentation/slideContentSchemas.mjs";
 import { validateSlideContent } from "../../Service/presentationContentValidator.mjs";
 import { validatePresentationContent } from "../../Service/presentationContentValidator.mjs";
@@ -12,6 +12,24 @@ import { validateQuantitativeGrounding } from "../../Service/ai/sourceGrounding.
 const schema = { type: "object", properties: { title: { type: "string" } }, required: ["title"] };
 const response = (value = { title: "Valid title" }) => ({ text: JSON.stringify(value), candidates: [{ finishReason: "STOP" }], usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 8 } });
 const options = { schema, outputType: "presentation" };
+test('outline provider schema avoids bounded-array complexity without weakening local limits',()=>{
+    const local={type:'object',properties:{slides:{type:'array',minItems:8,maxItems:10,items:{type:'object',properties:{kind:{type:'string',enum:['title','summary']},topics:{type:'array',maxItems:3,items:{type:'string'}}},required:['kind'],additionalProperties:false}}},required:['slides']};
+    const provider=outlineProviderSchema(local);
+    assert.equal(provider.properties.slides.maxItems,undefined);assert.equal(provider.properties.slides.minItems,undefined);
+    assert.equal(provider.properties.slides.items.properties.topics.maxItems,3);
+    assert.deepEqual(provider.properties.slides.items.required,['kind']);assert.equal(provider.properties.slides.items.additionalProperties,false);
+    assert.deepEqual(provider.properties.slides.items.properties.kind.enum,['title','summary']);
+    assert.equal(local.properties.slides.maxItems,10);
+    assert.throws(()=>validateSchema({slides:[{kind:'title'}]},local),{code:'AI_SCHEMA_VALIDATION_FAILED'});
+});
+test('provider failures classify key, model, schema and quota errors without exposing raw provider text',async()=>{
+    for(const [status,message,reason] of [[400,'API_KEY_INVALID private-secret','INVALID_API_KEY'],[403,'API_KEY_IP_ADDRESS_BLOCKED private-secret','API_KEY_RESTRICTED'],[403,'private-secret','PERMISSION_DENIED'],[404,'private-secret','MODEL_NOT_FOUND'],[400,'private-secret','REQUEST_REJECTED'],[429,'private-secret','QUOTA_OR_BILLING']]){
+        const run=await retry([Object.assign(new Error(message),{status})]);
+        await assert.rejects(run.promise,error=>error.providerStatus===status&&error.providerReason===reason&&error.model==='fixture'&&!error.message.includes('private-secret'));
+        assert.ok(!JSON.stringify(run.logs).includes('private-secret'));
+        assert.equal(run.calls.length,status===429?3:1);
+    }
+});
 for (const [name, value, code] of [
     ["empty", { text: "", candidates: [{ finishReason: "STOP" }] }, "AI_RESPONSE_EMPTY"],
     ["malformed", { ...response(), text: '{"title":' }, "AI_JSON_PARSE_FAILED"],
@@ -214,7 +232,8 @@ for (const requested of [null, 5, 9, 12]) test(`actual AI service enforces ${req
         if(request.config.responseJsonSchema.properties.coverage){calls++;return response({coverage:[],issues:[]});}
         if (calls++ === 0) {
             const s = request.config.responseJsonSchema.properties.slides;
-            assert.equal(s.minItems, requested ?? 8); assert.equal(s.maxItems, requested ?? 10);
+            assert.equal(s.minItems,undefined);assert.equal(s.maxItems,undefined);
+            assert.ok(request.contents.includes(requested?`exactly ${requested}`:'8–10'));
             return response(chosen);
         }
         const key = SLIDE_TYPE_CONTENT_MAP[chosen.slides[calls - 2].slideType];
@@ -223,6 +242,14 @@ for (const requested of [null, 5, 9, 12]) test(`actual AI service enforces ${req
     const result = await aiService('prompt', 'Explain source review.', 'presentation', requested ? { slideCount: requested } : {}, { client, logger: () => {} });
     assert.equal(result.generatedContent.slides.length, count);
     assert.equal(calls, count + 2);
+});
+
+test('default outline counts remain enforced locally after simplifying the provider schema',async()=>{
+    let calls=0;
+    await assert.rejects(aiService('prompt','Explain source review.','presentation',{}, {
+        client:{models:{generateContent:async()=>{calls++;return response(plan);}}},logger:()=>{},sleep:async()=>{}
+    }),error=>error.code==='AI_RETRY_EXHAUSTED'&&error.stage==='presentation-outline'&&error.lastErrorCode==='AI_SCHEMA_VALIDATION_FAILED');
+    assert.equal(calls,3);
 });
 
 test('readability repair identifies the field and supplies a concrete character budget', async () => {

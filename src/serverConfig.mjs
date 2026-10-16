@@ -24,11 +24,45 @@ export function readServerConfig(env=process.env) {
     return {mongoUrl,port,host:'0.0.0.0'};
 }
 export function safeStartupError(error) {
+    const failures=[],seen=new Set();
+    const inspect=(value,depth=0)=>{
+        if(!value||typeof value!=='object'||depth>6||seen.has(value))return;
+        seen.add(value);failures.push(value);
+        for(const key of ['cause','reason','error','originalError'])inspect(value[key],depth+1);
+        if(value.servers instanceof Map)for(const server of value.servers.values())inspect(server.error,depth+1);
+    };
+    inspect(error);
+    const authentication=failures.find(value=>value.code===18||value.code===8000&&/bad auth|authentication failed/i.test(value.message||''));
+    if(authentication)return {code:'MONGO_AUTH_FAILED',message:'MongoDB rejected the database-user credentials. Verify the Atlas database username/password in MONGO_URL.'};
+    const networkCodes=['ECONNREFUSED','ETIMEOUT','ETIMEDOUT','ENOTFOUND','ENODATA','ESERVFAIL','EAI_AGAIN','ENETUNREACH','EHOSTUNREACH','ECONNRESET','EACCES'];
+    const network=failures.find(value=>networkCodes.includes(value.code));
+    if(network)error=network;
     if(['MISSING_MONGO_URL','INVALID_MONGO_URL','INVALID_PORT','INVALID_DNS_SERVERS'].includes(error.code))return {code:error.code,message:error.message};
     if(error.code==='EADDRINUSE')return {code:'PORT_IN_USE',message:'Ledify cannot listen because PORT is already in use. Stop the other server or choose an unused PORT in .env.'};
     if(['querySrv','queryTxt','getaddrinfo'].includes(error.syscall)&&['ECONNREFUSED','ETIMEOUT','ETIMEDOUT','ENOTFOUND','ENODATA','ESERVFAIL','EAI_AGAIN'].includes(error.code))return {code:'MONGO_DNS_FAILED',networkCode:error.code,message:'Unable to resolve the MongoDB Atlas address through your DNS server. Check your internet connection, DNS settings, VPN/firewall and Atlas cluster hostname, then retry.'};
     if(['ECONNREFUSED','ETIMEDOUT','ENETUNREACH','EHOSTUNREACH','ECONNRESET','EACCES'].includes(error.code))return {code:'MONGO_NETWORK_FAILED',networkCode:error.code,message:'The local network could not connect to MongoDB. Check internet connectivity, firewall/VPN settings and Atlas network access, then retry.'};
     if(error.code===18||error.code===8000&&/bad auth|authentication failed/i.test(error.message||''))return {code:'MONGO_AUTH_FAILED',message:'MongoDB rejected the database-user credentials. Verify the Atlas database username/password in MONGO_URL.'};
     if(error.name==='MongoServerSelectionError')return {code:'MONGO_UNREACHABLE',message:'Unable to reach MongoDB. Verify Atlas network access for the service outbound addresses and that the cluster is available.'};
+    if(failures.some(value=>value.name==='MongoNetworkError'||value.name==='MongoNetworkTimeoutError'))return {code:'MONGO_NETWORK_FAILED',message:'The MongoDB connection was interrupted. Check internet connectivity, firewall/VPN settings, TLS connectivity and Atlas network access, then retry.'};
     return {code:'STARTUP_FAILED',errorType:['MongoServerError','MongoParseError','MongoNetworkError','MongoAPIError','Error','TypeError'].includes(error.name)?error.name:undefined,driverCode:Number.isInteger(error.code)?error.code:undefined,message:'Unable to start Ledify. Verify the MongoDB URI, database-user credentials, Atlas network access, and service environment configuration.'};
+}
+
+export async function connectMongoWithRetry(mongoUrl,{
+    connect=(uri,options)=>mongoose.connect(uri,options),disconnect=()=>mongoose.disconnect(),
+    sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),
+    logger=entry=>console.error('[STARTUP]',JSON.stringify(entry)),maxAttempts=3
+}={}) {
+    if(!Number.isInteger(maxAttempts)||maxAttempts<1||maxAttempts>3)throw new RangeError('MongoDB connection attempts must be between 1 and 3');
+    for(let attempt=1;attempt<=maxAttempts;attempt++){
+        try{return await connect(mongoUrl,{serverSelectionTimeoutMS:15000,connectTimeoutMS:10000});}
+        catch(error){
+            const diagnostic=safeStartupError(error);
+            const retryable=['MONGO_NETWORK_FAILED','MONGO_UNREACHABLE'].includes(diagnostic.code)||diagnostic.code==='MONGO_DNS_FAILED'&&['ECONNREFUSED','ETIMEOUT','ETIMEDOUT','ESERVFAIL','EAI_AGAIN'].includes(diagnostic.networkCode);
+            if(!retryable||attempt===maxAttempts)throw error;
+            await disconnect();
+            const retryAfterMs=attempt*1500;
+            logger({...diagnostic,status:'retrying',attempt,maxAttempts,retryAfterMs});
+            await sleep(retryAfterMs);
+        }
+    }
 }

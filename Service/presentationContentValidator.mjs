@@ -562,9 +562,9 @@ export const validatePresentationContent = (
                 : "";
 
 
-        throw new Error(
+        throw Object.assign(new Error(
             `Generated presentation failed content validation:\n${formattedErrors}${additionalErrors}`
-        );
+        ),{validationErrors:errors.slice(0,25),validationRule:'PRESENTATION_CONTENT'});
 
     }
 
@@ -3706,11 +3706,18 @@ const validateTopicConsistency = (
                         )
                 );
 
+            // A legitimate subtopic need not repeat the deck's exact nouns.
+            // Check visible body against the previously approved outline too.
+            const planned=source?.plannedSlides?.find(item=>item.slideNumber===(slide?.slideNumber||index+1));
+            const plannedTokens=new Set(getMeaningfulTokens(`${planned?.title||''} ${planned?.objective||''}`));
+            const plannedBodyMatches=new Set(getMeaningfulTokens(extractText(slide?.content)).filter(token=>plannedTokens.has(token)));
+
 
             if (
                 uniqueSlideTokens.length >= 25 &&
                 matches.length === 0 &&
-                titleMatches.length === 0
+                titleMatches.length === 0 &&
+                plannedBodyMatches.size < 2
             ) {
 
                 errors.push(

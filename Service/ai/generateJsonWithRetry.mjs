@@ -2,6 +2,19 @@ import { AiGenerationError, parseResponse } from "./responseValidation.mjs";
 import { randomUUID } from "node:crypto";
 
 const recoverable = new Set(["AI_RESPONSE_TRUNCATED", "AI_RESPONSE_EMPTY", "AI_RESPONSE_INCOMPLETE", "AI_JSON_PARSE_FAILED", "AI_SCHEMA_VALIDATION_FAILED", "AI_REPETITIVE_OUTPUT", "AI_TEXT_TOO_LONG"]);
+function providerReason(error,status) {
+    // Classify privately; never return or log raw provider text, prompts or keys.
+    const message=String(error.message||'');
+    if(/API_KEY_INVALID|API key not valid|API key expired/i.test(message)||status===401)return 'INVALID_API_KEY';
+    if(/API_KEY_SERVICE_BLOCKED|API_KEY_HTTP_REFERRER_BLOCKED|API_KEY_IP_ADDRESS_BLOCKED/i.test(message))return 'API_KEY_RESTRICTED';
+    if(/location.*not supported|not available in your country|unsupported.*region/i.test(message))return 'REGION_UNSUPPORTED';
+    if(status===403)return 'PERMISSION_DENIED';
+    if(status===404)return 'MODEL_NOT_FOUND';
+    if(status===429||status===402)return 'QUOTA_OR_BILLING';
+    if(status===400)return 'REQUEST_REJECTED';
+    if([408,500,502,503,504].includes(status))return 'PROVIDER_UNAVAILABLE';
+    return 'PROVIDER_CONNECTION_FAILED';
+}
 function jsonSchemaTypes(value) {
     if(Array.isArray(value)) return value.map(jsonSchemaTypes);
     if(value && typeof value==='object') return Object.fromEntries(Object.entries(value).map(([key,child])=>[key,key==='type'&&typeof child==='string'?child.toLowerCase():jsonSchemaTypes(child)]));
@@ -31,11 +44,13 @@ export async function generateJsonWithRetry({ client, request, schema, outputTyp
                 finishReason: response.candidates[0].finishReason, usage: response.usageMetadata });
             return value;
         } catch (error) {
-            const status = Number(error.status || error.statusCode || error.error?.code);
+            const rawStatus = Number(error.status || error.statusCode || error.error?.code);
+            const status=Number.isInteger(rawStatus)&&rawStatus>=400&&rawStatus<=599?rawStatus:undefined;
             const transient = [408, 429, 500, 502, 503, 504].includes(status) || (!status && ["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN"].includes(error.cause?.code || error.code));
-            lastError = error instanceof AiGenerationError ? error : new AiGenerationError(transient ? "AI_PROVIDER_TRANSIENT" : "AI_PROVIDER_ERROR", "AI provider request failed", { providerStatus: status || undefined });
+            lastError = error instanceof AiGenerationError ? error : new AiGenerationError(transient ? "AI_PROVIDER_TRANSIENT" : "AI_PROVIDER_ERROR", "AI provider request failed", { providerStatus: status,providerReason:providerReason(error,status) });
+            if(lastError.providerReason)lastError.model=/^[a-zA-Z0-9._/-]{1,100}$/.test(request.model||'')?request.model:undefined;
             Object.assign(lastError, { requestId, stage, slideNumber, sectionId, attempt });
-            logger({ requestId, stage, slideNumber, sectionId, validationRule:lastError.validationRule, attempt, status: "failed", errorCode: lastError.code, providerStatus: status || undefined,
+            logger({ requestId, stage, slideNumber, sectionId, validationRule:lastError.validationRule, attempt, status: "failed", errorCode: lastError.code, providerStatus: status,providerReason:lastError.providerReason,
                 field: lastError.field, maxCharacters: lastError.maxCharacters,
                 finishReason: response?.candidates?.[0]?.finishReason, usage: response?.usageMetadata, elapsedMs: Date.now() - started, model: request.model });
             if (!transient && !recoverable.has(lastError.code)) throw lastError;
@@ -43,7 +58,7 @@ export async function generateJsonWithRetry({ client, request, schema, outputTyp
         }
     }
     const exhausted = new AiGenerationError("AI_RETRY_EXHAUSTED", `AI generation failed after ${maxAttempts} attempts (${lastError.code})`,
-        { requestId, stage, slideNumber, sectionId,validationRule:lastError.validationRule, attempts: maxAttempts, lastErrorCode: lastError.code, field: lastError.field });
+        { requestId, stage, slideNumber, sectionId,validationRule:lastError.validationRule, attempts: maxAttempts, lastErrorCode: lastError.code, field: lastError.field,providerStatus:lastError.providerStatus,providerReason:lastError.providerReason,model:lastError.model });
     exhausted.cause = lastError;
     throw exhausted;
 }

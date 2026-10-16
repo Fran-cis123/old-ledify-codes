@@ -7,6 +7,7 @@ import {combineGenerationInput} from '../../Service/input/combinedInput.mjs';
 import {docxSource,pdfSource,DOCX_MIME} from '../fixtures/uploadFiles.mjs';
 import {documentFixtureClient,documentParagraph} from '../fixtures/documentFixtures.mjs';
 import {fixtures,fixtureClient} from '../webpage/fixtures.mjs';
+import {generateJsonWithRetry} from '../../Service/ai/generateJsonWithRetry.mjs';
 process.env.GEMINI_API_KEY ||= 'test-key-never-used';
 const {createApp}=await import('../../src/app.mjs');
 const {generateService}=await import('../../Service/generateService.mjs');
@@ -15,6 +16,15 @@ async function serve(t,options) {
     const app=createApp({model,...options});const server=await new Promise(resolve=>{const server=app.listen(0,'127.0.0.1',()=>resolve(server));});
     t.after(()=>server.close());return `http://127.0.0.1:${server.address().port}`;
 }
+
+test('generation endpoints expose actionable provider diagnostics with dependency HTTP statuses',async t=>{
+    const base=await serve(t,{generator:async()=>generateJsonWithRetry({client:{models:{generateContent:async()=>{throw Object.assign(new Error('API_KEY_INVALID PRIVATE_SECRET'),{status:400});}}},request:{model:'fixture',contents:'PRIVATE_PROMPT'},schema:{type:'object'},stage:'presentation-outline',outputType:'presentation',logger:()=>{}})});
+    const response=await fetch(base+'/api/generate/textPrompt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({textPrompt:'Explain government.',outputType:'presentation'})});
+    const body=await response.json();
+    assert.equal(response.status,502);assert.equal(body.errorCode,'AI_PROVIDER_ERROR');assert.equal(body.providerStatus,400);
+    assert.equal(body.providerReason,'INVALID_API_KEY');assert.equal(body.stage,'presentation-outline');assert.ok(body.requestId);
+    assert.match(body.error,/GEMINI_API_KEY/);assert.ok(!JSON.stringify(body).includes('PRIVATE_SECRET'));assert.ok(!JSON.stringify(body).includes('PRIVATE_PROMPT'));
+});
 
 test('unified JSON/multipart endpoint supports all seven input combinations for all three output choices',async t=>{
     const seen=[];const base=await serve(t,{extractUrl:async()=> 'Public webpage source.',generator:async(kind,input,outputType,context)=>{
