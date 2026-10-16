@@ -1405,7 +1405,7 @@ if (isPresentation) {
     canonicalTitles(generatedContent);
     const repairApprovedSlide=async(slide,instructions)=>{
         let repaired={...slide};
-        if(/\b(?:title|subtitle|heading)\b/i.test(instructions)){
+        if(/\b(?:title|subtitle|heading)\b/i.test(instructions.split('Resolve these exact validation failures')[0])){
             const metadataSchema={type:'object',properties:{title:{type:'string'},subtitle:{type:'string'}},required:['title','subtitle'],additionalProperties:false};
             const metadata=await run({stage:'slide-metadata-repair',slideNumber:slide.slideNumber,schema:metadataSchema,outputType:'presentation',
                 request:{model:process.env.GEMINI_SLIDE_MODEL || 'gemini-3.5-flash',contents:`Correct only this slide title/subtitle for factual accuracy and readability. Title under 80 characters, subtitle under 90; no generic filler or unsupported absolute claims. Preserve topic. Instructions: ${instructions}\nCurrent slide: ${JSON.stringify(slide)}\nSource/context: ${JSON.stringify({input,context})}`,config:{responseMimeType:'application/json',responseJsonSchema:metadataSchema,maxOutputTokens:1024}},

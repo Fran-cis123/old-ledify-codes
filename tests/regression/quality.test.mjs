@@ -48,6 +48,26 @@ test('unsuccessful whole-presentation repairs stop after two rounds and retain s
     assert.equal(attempts,2);
 });
 
+test('validation repair accepts canonical content and supplies the neighboring slide context',async()=>{
+    const presentation=duplicateDeck();
+    await repairPresentationValidation({presentation,source:{plannedSlides:[{slideNumber:3,title:'Apply findings',objective:'Communicate limitations.'}]},requestId:'fixture',repairSlide:async(slide,instructions)=>{
+        assert.match(instructions,/Communicate limitations/);
+        assert.match(instructions,/Other slides/);
+        slide.slideNumber=99; // Callback mutations must not corrupt canonical identity.
+        return {textContent:{heading:'Apply findings carefully',body:'Explain limitations clearly before applying reviewed findings to a new decision or unfamiliar setting.'}};
+    }});
+    assert.equal(presentation.slides[2].slideNumber,3);
+    assert.equal(presentation.slides[2].content.textContent.heading,'Apply findings carefully');
+    assert.doesNotThrow(()=>validateCompletedPresentation(presentation,{}));
+});
+
+test('exhausted repairs expose underlying validation reasons to server diagnostics',async()=>{
+    await assert.rejects(repairPresentationValidation({presentation:duplicateDeck(),source:{},requestId:'fixture',repairSlide:async slide=>slide}),error=>{
+        assert.ok(error.validationErrors.some(issue=>/duplicates/.test(issue)));
+        assert.equal(error.requestId,'fixture');return true;
+    });
+});
+
 test('count defaults, explicit fields, natural language and actionable limits', () => {
     assert.deepEqual(resolveSlideCount('Explain water'), { min: 8, max: 10, source: 'default' });
     for (const n of [5, 9, 12]) assert.equal(resolveSlideCount(`Create ${n}-slide presentation`).min, n);

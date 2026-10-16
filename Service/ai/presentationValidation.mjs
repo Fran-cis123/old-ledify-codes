@@ -22,6 +22,7 @@ export async function repairPresentationValidation({presentation,source,requestI
             for(const issue of issues){
                 const numbers=[...issue.matchAll(/\bSlide (\d+)/g)].map(match=>Number(match[1]));
                 numbers.push(...[...issue.matchAll(/slides\[(\d+)\]/g)].map(match=>Number(match[1])+1));
+                if(/Presentation averages approximately/i.test(issue)) numbers.push(...presentation.slides.map((_,index)=>index+1));
                 if(/Presentation (?:title|subtitle)/i.test(issue))numbers.push(1);
                 for(const number of numbers)if(presentation.slides[number-1]){
                     if(!targets.has(number))targets.set(number,[]);
@@ -29,11 +30,24 @@ export async function repairPresentationValidation({presentation,source,requestI
                 }
             }
             if(round===2||!targets.size)throw new AiGenerationError('AI_SCHEMA_VALIDATION_FAILED','Presentation still fails content validation',{
-                requestId,stage:'presentation-validation',validationRule:'PRESENTATION_CONTENT',slideNumber:targets.keys().next().value,cause:error
+                requestId,stage:'presentation-validation',validationRule:'PRESENTATION_CONTENT',slideNumber:targets.keys().next().value,validationErrors:issues,cause:error
             });
             for(const [number,requirements] of targets){
-                const repaired=await repairSlide(presentation.slides[number-1],requirements.join('\n'));
-                Object.assign(presentation.slides[number-1],repaired);
+                const slide=presentation.slides[number-1];
+                const planned=source?.plannedSlides?.find(item=>item.slideNumber===number);
+                const instructions=[...requirements,
+                    'Resolve these exact validation failures in the visible content. Preserve the slide number, semantic type and approved objective.',
+                    `Approved objective: ${JSON.stringify(planned || {title:slide.title})}`,
+                    `Other slides (avoid duplicating their title or body): ${JSON.stringify(presentation.slides.filter(item=>item!==slide).map(({slideNumber,title,content})=>({slideNumber,title,content})))}`];
+                if(requirements.some(issue=>/drifted away/i.test(issue))) instructions.push('Make the connection to the presentation topic explicit in the visible body, and explain the approved subtopic using its specific terminology.');
+                if(requirements.some(issue=>/Presentation averages/i.test(issue))) instructions.push('Reduce visible text to fewer than 100 words while preserving essential facts.');
+                const repaired=await repairSlide(structuredClone(slide),instructions.join('\n'));
+                // Callbacks may return either complete slide metadata or canonical content.
+                const candidate=repaired?.content?{...slide,...repaired}:{...slide,content:repaired};
+                candidate.slideNumber=slide.slideNumber;
+                candidate.slideType=slide.slideType;
+                validateRenderContent(candidate);
+                Object.assign(slide,candidate);
             }
             canonicalTitles(presentation);
         }

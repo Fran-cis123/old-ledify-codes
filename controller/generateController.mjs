@@ -57,6 +57,7 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
         } catch (error) {
             if (record) { record.status = 'failed'; try { await record.save(); } catch {} }
             const code = error.code || 'GENERATION_FAILED';
+            if(error.validationErrors?.length) console.error('[GENERATION_VALIDATION]',JSON.stringify({requestId:error.requestId,stage:error.stage,validationErrors:error.validationErrors}));
             console.error('[GENERATION]',JSON.stringify({errorCode:code,stage:error.stage||'generation',requestId:error.requestId,slideNumber:error.slideNumber,sectionId:error.sectionId,validationRule:error.validationRule,field:error.field,maxCharacters:error.maxCharacters,lastErrorCode:error.lastErrorCode,providerStatus:error.providerStatus,providerReason:error.providerReason,model:error.model}));
             if(code==='AI_PROVIDER_ERROR'||code==='AI_PROVIDER_TRANSIENT'||code==='AI_RETRY_EXHAUSTED'&&error.lastErrorCode==='AI_PROVIDER_TRANSIENT'){
                 const reasons={
