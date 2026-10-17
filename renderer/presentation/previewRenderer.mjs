@@ -2,6 +2,7 @@
 import fs from "fs/promises";
 import path from "path";
 import crypto from "crypto";
+import { presentationStorageRoot } from '../../Service/presentationStorage.mjs';
 import { validateRenderedPptx } from './renderedOutputValidation.mjs';
 
 import {
@@ -69,14 +70,7 @@ export const previewRenderer = async (
     // 2. RESOLVE PREVIEW ROOT DIRECTORY
     // =====================================================
 
-    const previewRootDirectory =
-        options.outputDirectory
-            ? path.resolve(options.outputDirectory)
-            : path.resolve(
-                process.cwd(),
-                "generated",
-                "previews"
-            );
+    const previewRootDirectory = presentationStorageRoot(options.outputDirectory);
 
     await fs.mkdir(
         previewRootDirectory,
@@ -135,8 +129,10 @@ export const previewRenderer = async (
             previewId, title: pptxResult.title,
             status: "partial_success", stages,
             slideCount: presentation.slides.length, previewCount: 0, slides: [],
+            previewUrl: stage === 'png' ? `/api/presentations/${previewId}/preview` : null,
             warnings: [{ stage, code: `${stage.toUpperCase()}_CONVERSION_FAILED`,
                 message: stage === "pdf" ? "PowerPoint is available; PDF conversion failed." : "PowerPoint and PDF are available; slide previews failed.",
+                ...(/^PNG_[A-Z_]+$/.test(error.code||'')?{reasonCode:error.code}:{}),
                 ...(error.pageNumber ? { pageNumber: error.pageNumber } : {}) }],
             files: { previewDirectory, pptxPath: pptxResult.filePath,
                 pdfPath: stage === "png" ? pdfResult.pdfPath : null, slidesDirectory },
@@ -324,6 +320,7 @@ export const previewRenderer = async (
         stages,
         warnings: [],
         previewCount: slides.length,
+        previewUrl: `/api/presentations/${previewId}/preview`,
         downloads: { pptx: `/api/presentations/${previewId}/download`, pdf: `/api/presentations/${previewId}/pdf` },
 
         title: pptxResult.title,

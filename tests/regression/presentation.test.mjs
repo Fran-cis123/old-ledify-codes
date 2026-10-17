@@ -10,9 +10,9 @@ import { downloadPresentation, downloadPresentationPdf, getPresentationSlide } f
 import { fileService } from "../../Service/fileService.mjs";
 import { convertPdfToImages } from "../../renderer/converters/pdfToImages.mjs";
 import { previewRenderer } from "../../renderer/presentation/previewRenderer.mjs";
-import { renderTitleCentered } from "../../renderer/presentation/layouts/titleCentered.mjs";
-import { renderFocusedStatement } from "../../renderer/presentation/layouts/focusedStatement.mjs";
-import { renderTitleSplit } from "../../renderer/presentation/layouts/titleSplit.mjs";
+
+import { renderLayout } from "../../renderer/presentation/layoutRegistry.mjs";
+import { fixtures } from "../fixtures/presentationContent.mjs";
 
 const fixtureDirectory = path.resolve("tests/preview/output/renderer-test/e7d16e44-043e-4d27-89ca-4246819959b6");
 const fixture = path.join(fixtureDirectory, "presentation.pdf");
@@ -42,6 +42,22 @@ test("invalid PDF rejects with page diagnostics instead of hanging", async t => 
     const pdfPath = path.join(directory, "invalid.pdf");
     await fs.writeFile(pdfPath, "not a PDF");
     await assert.rejects(convertPdfToImages({ pdfPath, outputDirectory: path.join(directory, "slides") }), error => error.stage === "png" && error.pageNumber === 1);
+});
+
+test('missing Poppler automatically falls back to isolated PDF.js and produces real slide PNGs',async t=>{
+    const previous=process.env.PDFTOPPM_PATH;
+    const root=await temp(t);
+    process.env.PDFTOPPM_PATH=path.join(root,'missing-pdftoppm');
+    try{
+        await fileService({originalname:'source.pdf',mimetype:'application/pdf',buffer:await fs.readFile(fixture)});
+        const images=await convertPdfToImages({pdfPath:fixture,outputDirectory:path.join(root,'slides'),engine:'auto',timeoutMs:15000});
+        assert.equal(images.length,2);
+        for(const [index,image] of images.entries()){
+            assert.equal(image.slideNumber,index+1);
+            assert.equal((await fs.readFile(image.filePath)).subarray(0,8).toString('hex'),'89504e470d0a1a0a');
+        }
+        await assert.rejects(convertPdfToImages({pdfPath:fixture,outputDirectory:path.join(root,'strict'),engine:'poppler'}),error=>error.code==='PNG_RENDERER_UNAVAILABLE'&&error.cause.code==='ENOENT');
+    }finally{if(previous===undefined)delete process.env.PDFTOPPM_PATH;else process.env.PDFTOPPM_PATH=previous;}
 });
 
 test("rendering timeout terminates the worker", async t => {
@@ -75,8 +91,12 @@ for (const failure of ["pdf", "png", "count"]) {
         assert.ok((await fs.stat(result.files.pptxPath)).size);
         if (failure === "pdf") {
             assert.equal(result.files.pdfPath, null);
+            assert.equal(result.previewUrl,null);
             assert.equal(result.stages.png, "skipped");
-        } else assert.ok((await fs.stat(result.files.pdfPath)).size);
+        } else {
+            assert.ok((await fs.stat(result.files.pdfPath)).size);
+            assert.equal(result.previewUrl,`/api/presentations/${result.previewId}/preview`);
+        }
     });
 }
 
@@ -94,9 +114,9 @@ test('PowerPoint preview failures preserve rendering stage slide field and origi
 
 test("title renders canonical subtitle and supporting text without internal label", () => {
     const texts = [];
-    renderTitleCentered({
+    renderLayout({
         slide: { addText: text => texts.push(text), addShape() {} },
-        slideData: { title: "Presentation", slideType: "title", content: { titleContent: { subtitle: "Canonical subtitle", supportingText: "Supporting text" } } },
+        slideData: { slideNumber: 1, layoutId: "title-centered", title: "Presentation", slideType: "title", content: { titleContent: { title: "Presentation", subtitle: "Canonical subtitle", supportingText: "Supporting text" } } },
         tokens: {}, pptx: { ShapeType: { line: "line", rect: "rect" } }
     });
     assert.ok(texts.includes("Canonical subtitle"));
@@ -133,14 +153,14 @@ test("artifact routes download available files and reject invalid paths", async 
 
 for (const [slideType, content, expected] of [
     ["focused-explanation", { textContent: { heading: "Explanation", body: "Canonical explanation body" } }, "Canonical explanation body"],
-    ["summary", { summary: { statement: "Summary statement", points: ["First takeaway"] } }, "First takeaway"],
-    ["conclusion", { conclusion: { statement: "Conclusion statement", supportingPoints: ["Supporting evidence"] } }, "Supporting evidence"]
+    ["summary", { summary: fixtures.summary }, fixtures.summary.points[0]],
+    ["conclusion", { conclusion: fixtures.conclusion }, fixtures.conclusion.supportingPoints[0]]
 ]) {
     test(`${slideType} renders canonical content without internal labels`, () => {
         const texts = [];
-        renderFocusedStatement({
+        renderLayout({
             slide: { addText: text => texts.push(text), addShape() {} },
-            slideData: { title: "Visible title", slideType, content },
+            slideData: { slideNumber: 1, layoutId: "focused-statement", title: "Visible title", slideType, content },
             tokens: {}, pptx: { ShapeType: { rect: "rect", line: "line" } }
         });
         assert.ok(texts.some(text => typeof text === "string" && text.includes(expected)));
@@ -150,9 +170,9 @@ for (const [slideType, content, expected] of [
 
 test("split title renders canonical text without a slide type label", () => {
     const texts = [];
-    renderTitleSplit({
+    renderLayout({
         slide: { addText: text => texts.push(text), addShape() {} },
-        slideData: { title: "Visible title", slideType: "title", content: { titleContent: { subtitle: "Split subtitle", supportingText: "Split supporting text" } } },
+        slideData: { slideNumber: 1, layoutId: "title-split", title: "Visible title", slideType: "title", content: { titleContent: { title: "Visible title", subtitle: "Split subtitle", supportingText: "Split supporting text" } } },
         tokens: {}, pptx: { ShapeType: { rect: "rect", line: "line" } }
     });
     assert.ok(texts.includes("Split subtitle"));

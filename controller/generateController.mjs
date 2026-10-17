@@ -6,6 +6,7 @@ import { generateService } from '../Service/generateService.mjs';
 import { publicGenerationResult, compactOptionalContext } from '../Service/publicGenerationResult.mjs';
 import { validateUploadedFile } from '../Service/input/fileValidation.mjs';
 import { combineGenerationInput } from '../Service/input/combinedInput.mjs';
+import { addPresentationPublicUrls } from '../Service/presentationPublicUrls.mjs';
 
 export function createGenerationHandlers({ model = generateModel, generator = generateService, extractFile = fileService, extractUrl = urlService } = {}) {
     const handle = inputType => async (req, res) => {
@@ -38,6 +39,7 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
             let result = await generator(kind, input, outputType, context);
             if(sources)result={...result,sources};
             result = publicGenerationResult(result);
+            result = addPresentationPublicUrls(result,req);
             for(const key of ['context','resolvedContext']) result[key]=compactOptionalContext(result[key]);
             if(result.generatedContent?.inferredContext) result.generatedContent.inferredContext=compactOptionalContext(result.generatedContent.inferredContext);
             record.status = 'completed'; record.generatedContent = result.generatedContent;

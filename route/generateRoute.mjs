@@ -4,7 +4,7 @@ import { createGenerationHandlers } from '../controller/generateController.mjs';
 
 import upload from '../middleWares/uploadMiddlewares.mjs';
 
-import { getPresentationSlide, downloadPresentation, downloadPresentationPdf } from '../controller/presentationAssetsController.mjs';
+import { getPresentationSlide, downloadPresentation, downloadPresentationPdf, previewPresentationPdf } from '../controller/presentationAssetsController.mjs';
 
 import { webpageAssetHandlers } from '../controller/webpageAssetsController.mjs';
 
@@ -35,6 +35,7 @@ export function createGenerationRouter(options = {}) {
     router.get('/presentations/:previewId/download', downloadPresentation);
 
     router.get('/presentations/:previewId/pdf', downloadPresentationPdf);
+    router.get('/presentations/:previewId/preview', previewPresentationPdf);
 
     const assets = webpageAssetHandlers(options.webpageRoot);
 
