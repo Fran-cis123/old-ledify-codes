@@ -2,6 +2,11 @@ import { webpageLayoutService } from './webpageLayoutService.mjs';
 import { webpageThemeService } from './webpageThemeService.mjs';
 import { webpageRenderer } from '../renderer/webpage/webpageRenderer.mjs';
 import { webpageArtifactService } from './webpageArtifactService.mjs';
+import { acquireWebsiteImages } from './webpage/imagePipeline.mjs';
+import { compileWebsiteBrief } from './webpage/websiteBrief.mjs';
+import {inspectWebsite} from './webpage/qualityGate.mjs';
+import {websiteSpecification} from './webpage/websiteSpecification.mjs';
+import { planWebpageDesign } from './webpageDesignService.mjs';
 import { aiService } from "./aiService.mjs";
 import { resolvePresentationVisuals } from './visual/presentationVisuals.mjs';
 import { createDiagramPlanner } from './visual/diagramPlanner.mjs';
@@ -57,12 +62,23 @@ export const generateService = async (
     // =====================================================
 
     if (outputType === 'webpage') {
-        const page = webpageThemeService(webpageLayoutService(aiResult.generatedContent), context);
-        const files = webpageRenderer(page);
-        const artifacts = await webpageArtifactService(files, options.artifacts);
+        const normalized=webpageLayoutService(aiResult.generatedContent,{...context,topic:context.topic||input.slice(0,4000)});
+        const requested=context.websiteBrief || {};
+        if(requested.name)normalized.brandName=requested.name;
+        if(requested.industry)normalized.designBrief.industry=requested.industry;
+        if(context.designPreferences?.heroComposition)normalized.designSpec.heroComposition=context.designPreferences.heroComposition;
+        const designed=planWebpageDesign(normalized,context);
+        designed.websiteBrief=compileWebsiteBrief(designed,input,context);
+        const resolved = await acquireWebsiteImages(webpageThemeService(designed, context), context, options.webpageAssets);
+        const page = resolved.page;
+        const inspected = await inspectWebsite(webpageRenderer(page, resolved.assets),options.webpageQuality);
+        page.quality={...page.quality,validation:inspected.report};
+        page.websiteSpecification=websiteSpecification(page);
+        const artifacts = await webpageArtifactService(inspected.files, options.artifacts);
         timings.renderMs=Math.round(performance.now()-artifactStarted);
-        return finish({ ...aiResult, generatedContent: page, status: artifacts.status, artifacts,
-            warnings: [...(page.limitations || []).map(message => ({ code: 'STATIC_SCOPE_LIMITATION', message })), ...artifacts.warnings] });
+        const needsReview=page.contentSpecification?.missingInformation.length||resolved.warnings.length||inspected.warnings.length||inspected.report.browser!=='passed';
+        return finish({ ...aiResult, generatedContent: page, status: artifacts.status==='completed'&&needsReview?'completed_with_warnings':artifacts.status, artifacts,
+            warnings: [...(page.warnings || []),...(page.limitations || []).map(message => ({ code: 'STATIC_SCOPE_LIMITATION', message })), ...resolved.warnings, ...inspected.warnings, ...artifacts.warnings] });
     }
     if (outputType === 'document') {
         const document=aiResult.generatedContent;
@@ -182,7 +198,8 @@ export const generateService = async (
 
         const visualStarted=performance.now();
         timings.layoutMs=Math.round(visualStarted-artifactStarted);
-        rendererReadyPresentation = await resolvePresentationVisuals(rendererReadyPresentation, resolvedContext,
+        const visualContext={...resolvedContext,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')};
+        rendererReadyPresentation = await resolvePresentationVisuals(rendererReadyPresentation, visualContext,
             {diagramPlanner:createDiagramPlanner(options.ai),...options.visuals});
         timings.visualsMs=Math.round(performance.now()-visualStarted);
         const renderStarted=performance.now();

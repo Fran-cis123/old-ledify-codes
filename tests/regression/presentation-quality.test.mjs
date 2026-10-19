@@ -80,16 +80,18 @@ test('actual PPTX contains subtitles, real media and editable diagram labels; in
     await validateRenderedPptx(file,visual);const zip=await JSZip.loadAsync(buffer),xml=await zip.file('ppt/slides/slide2.xml').async('string');
     for(const text of ['Right atrium','Left atrium','Right ventricle','Left ventricle','Tricuspid','Mitral','Pulmonary valve','Aortic valve','A simplified chamber'])assert.ok(xml.includes(text),text);
     assert.ok(!xml.includes('Internal request'));assert.ok(!xml.includes('internal anatomy search query'));
-    assert.ok(Object.keys(zip.files).some(p=>/^ppt\/media\/.*png$/.test(p)));
+    // Native diagram elements remain editable; a decorative raster is no longer injected.
+    assert.ok(xml.includes('<p:sp>'));
     assert.ok((await zip.file('ppt/notesSlides/notesSlide2.xml').async('string')).includes('nhlbi.nih.gov'));
 });
 test('unavailable or unsuitable providers fall back with truthful visual warnings',async t=>{
     let calls=0;const deck=base();deck.slides[0].visualRequirement={role:'background',kind:'photo',required:false,description:'A calm editorial background',searchQuery:'architecture',altText:''};
     deck.slides[1]={slideNumber:2,slideType:'text-visual',title:'Unavailable product image',content:{visualContent:structuredClone(fixtures.visualContent)}};
     const visual=await resolvePresentationVisuals(ready(deck),{}, {cacheRoot:await temp(t),providers:{search:async()=>{calls++;throw new Error('Unavailable');},generate:async()=>{calls++;return null;}}});
-    assert.equal(calls,2);assert.ok(visual.warnings.some(w=>w.code==='IMAGE_PROVIDER_FALLBACK'));assert.ok(visual.warnings.some(w=>w.code==='VISUAL_UNRESOLVED'));
+    assert.equal(calls,4);assert.equal(visual.visualQuality.budget.attempts,0);assert.ok(visual.warnings.some(w=>w.code==='IMAGE_PROVIDER_FALLBACK'));assert.ok(visual.warnings.some(w=>w.code==='VISUAL_UNRESOLVED'));
     assert.equal(visual.slides[1].layoutId,'text-visual-text-fallback');
-    assert.ok(visual.slides[0].backgroundAsset.overlay.minimumContrast>=4.5);
+    assert.equal(visual.slides[0].backgroundAsset,undefined);
+    assert.equal(visual.slides[0].coverArtwork,undefined);
 });
 test('photographic backgrounds are cropped without distortion and checked against every composited pixel',async t=>{
     const canvas=createCanvas(2400,1200),ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,1200,1200);ctx.fillStyle='black';ctx.fillRect(1200,0,1200,1200);
@@ -121,13 +123,13 @@ test('response v2 returns content once and truthful warnings; v1 compatibility i
         assert.ok(!JSON.stringify(body).includes('private'));assert.ok(body.data.result.preview.downloads.pptx.startsWith('/api/'));
     }
 });
-test('long approved cover titles retain their full text when decorative artwork narrows the layout',async t=>{
+test('long approved cover titles retain their full text without arbitrary decorative artwork',async t=>{
     const title='Artificial Intelligence: History, Technologies, Applications and Future Developments';
     const content=base();content.title=title;content.subtitle='Understanding the technology transforming our world';
     canonicalTitles(content);validateRenderContent(content.slides[0]);
     const root=await temp(t),resolved=await resolvePresentationVisuals(ready(content),{}, {external:false,diagramPlanner:false,cacheRoot:root});
-    assert.equal(resolved.slides[0].coverArtwork,undefined);assert.ok(resolved.slides[0].backgroundAsset);
-    assert.ok(resolved.warnings.some(warning=>warning.code==='COVER_LAYOUT_FALLBACK'));assert.equal(resolved.title,title);
+    assert.equal(resolved.slides[0].coverArtwork,undefined);assert.equal(resolved.slides[0].backgroundAsset,undefined);
+    assert.ok(!resolved.warnings.some(warning=>warning.code==='COVER_LAYOUT_FALLBACK'));assert.equal(resolved.title,title);
     const {buffer}=await generatePresentationBuffer(resolved);const target=path.join(root,'long-title.pptx');await fs.writeFile(target,buffer);
     await validateRenderedPptx(target,resolved);
     const zip=await JSZip.loadAsync(buffer);assert.ok((await zip.file('ppt/slides/slide1.xml').async('string')).includes(title));

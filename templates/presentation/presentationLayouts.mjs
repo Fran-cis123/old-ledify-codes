@@ -1,4 +1,7 @@
 export const presentationLayouts = [
+    {id:'title-editorial',slideTypes:['title'],description:'Typographic editorial opening with high contrast and no arbitrary artwork.'},
+    {id:'closing-synthesis',slideTypes:['summary','conclusion'],description:'Dominant closing message with supporting implications.'},
+    {id:'explanation-editorial',slideTypes:['focused-explanation'],description:'Lead explanation separated from its supporting sentences without changing content.'},
     {id:'relationship-chain-vertical',slideTypes:['relationship'],description:'A vertical chain of related entities with readable mechanisms and relationship labels.'},
 
 

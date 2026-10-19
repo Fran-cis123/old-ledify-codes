@@ -1,6 +1,7 @@
 import { getLayoutsForSlideType } from '../templates/presentation/presentationLayouts.mjs';
 import { validateRenderContent } from '../renderer/presentation/professionalLayouts.mjs';
 import { canonicalTitles } from './ai/presentationQuality.mjs';
+import { visualIntent } from './ai/presentationIntent.mjs';
 
 export function presentationLayoutService(generatedContent, context = {}) {
     if (!generatedContent?.slides?.length) throw new Error('Presentation slides are required');
@@ -8,9 +9,14 @@ export function presentationLayoutService(generatedContent, context = {}) {
     canonicalTitles(generatedContent);
     for(const [index,original] of generatedContent.slides.entries()){
         const slide={...original,slideNumber:original.slideNumber || index+1};
+        slide.visualIntent=visualIntent(slide);
+        delete slide.layoutId; // A stale caller-supplied ID must never bypass candidate validation.
         const available=getLayoutsForSlideType(slide.slideType).map(l=>l.id);
         if(!available.length) throw new Error('No presentation layout found for slide type: '+slide.slideType);
         let preferred=available[0];
+        if(slide.slideType==='title')preferred='title-editorial';
+        if(['summary','conclusion'].includes(slide.slideType))preferred='closing-synthesis';
+        if(slide.slideType==='focused-explanation')preferred='explanation-editorial';
         if(slide.slideType==='process') preferred=slide.content.process.steps.length<=4?'process-horizontal':'process-vertical';
         if(slide.slideType==='cards') preferred=slide.content.cards.length<=3?'cards-horizontal':'cards-grid';
         if(slide.slideType==='comparison') preferred=slide.content.comparison.items.length===2?'comparison-two-column':'comparison-multi-column';

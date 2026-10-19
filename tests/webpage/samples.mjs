@@ -19,9 +19,10 @@ for (const [name, fixture] of Object.entries(fixtures)) {
     await fs.mkdir(directory, { recursive: true });
     if (process.argv.includes('--render-saved')) {
         const saved = JSON.parse(await fs.readFile(path.join(directory, live ? 'live-result.json' : 'fixture-result.json'), 'utf8'));
+        const savedAssets={};for(const name of saved.artifacts.validation.files.filter(name=>name.startsWith('assets/images/')))savedAssets[name]=await fs.readFile(path.join(saved.artifacts.files.siteDirectory,name));
         const page = webpageThemeService(webpageLayoutService(saved.generatedContent));
         saved.generatedContent = page;
-        saved.artifacts = await webpageArtifactService(webpageRenderer(page));
+        saved.artifacts = await webpageArtifactService(webpageRenderer(page,savedAssets));
         await fs.writeFile(path.join(directory, live ? 'live-result.json' : 'fixture-result.json'), JSON.stringify(saved, null, 2));
         await fs.copyFile(saved.artifacts.files.zipPath, path.join(directory, 'generated-website.zip'));
         manifest.push({ name, mode: live ? 'live' : 'fixture', inputType: saved.inputType, directory, artifacts: saved.artifacts });
@@ -60,8 +61,8 @@ for (const [name, fixture] of Object.entries(fixtures)) {
     }
     console.log(`[WEBPAGE START] ${name} (${live ? 'live Gemini' : 'deterministic fixture'}, ${inputType})`);
     const result = await generateService(inputType, input, 'webpage', context,
-        live ? {} : { ai: { client: fixtureClient(fixture), logger: () => {} } });
-    if (result.status !== 'completed') throw new Error(`Incomplete sample: ${name}`);
+        live ? {} : { ai: { client: fixtureClient(fixture), logger: () => {} },webpageAssets:{external:false} });
+    if (!['completed','completed_with_warnings'].includes(result.status)) throw new Error(`Incomplete sample: ${name}`);
     await fs.writeFile(path.join(directory, live ? 'live-result.json' : 'fixture-result.json'), JSON.stringify(result, null, 2));
     await fs.copyFile(result.artifacts.files.zipPath, path.join(directory, 'generated-website.zip'));
     manifest.push({ name, mode: live ? 'live' : 'fixture', inputType, directory, artifacts: result.artifacts });

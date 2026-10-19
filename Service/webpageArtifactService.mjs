@@ -4,7 +4,7 @@ import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { validateStaticWebsite } from './webpageStaticValidator.mjs';
 
-export const WEBPAGE_ROOT = path.resolve('generated/webpages');
+export const WEBPAGE_ROOT = path.resolve(process.env.LEDIFY_WEBPAGE_ROOT || 'generated/webpages');
 export const tokenHash = token => createHash('sha256').update(token).digest('hex');
 export async function webpageArtifactService(files, options = {}) {
     const validation = validateStaticWebsite(files);

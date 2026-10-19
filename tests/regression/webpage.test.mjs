@@ -75,7 +75,7 @@ test('literal HTML is escaped, and unsafe URLs/styles/scripts are rejected', () 
     const files = webpageRenderer(p); assert.ok(files['index.html'].includes('&lt;script&gt;')); assert.ok(!files['index.html'].includes('<script>alert'));
     p.sections[0].items[0].url = 'javascript:alert(1)'; assert.throws(() => webpageRenderer(p), /HTTPS/);
     const valid = webpageRenderer(page());
-    for (const mutate of [f => { f['index.html'] = f['index.html'].replace('alt=""', 'onerror="alert(1)"'); }, f => { f['script.js'] = 'fetch("https://attacker.example")'; }, f => { f['index.html'] = f['index.html'].replace('./style.css', '../private.css'); }, f => { f['../secret'] = 'value'; }, f => { f['index.html'] = f['index.html'].replace('id="section-2"', 'id="section-1"'); }]) {
+    for (const mutate of [f => { f['index.html'] = f['index.html'].replace('<main ', '<main onerror="alert(1)" '); }, f => { f['script.js'] = 'fetch("https://attacker.example")'; }, f => { f['index.html'] = f['index.html'].replace('./style.css', '../private.css'); }, f => { f['../secret'] = 'value'; }, f => { f['index.html'] = f['index.html'].replace('id="section-2"', 'id="section-1"'); }]) {
         const modified = { ...valid }; mutate(modified); assert.throws(() => validateStaticWebsite(modified));
     }
 });
@@ -86,14 +86,14 @@ test('ZIP contains the exact validated offline website, and packaging failure re
     for (const [name, content] of Object.entries(files)) assert.equal(await zip.file(`my-website/${name}`).async('string'), content);
     const partial = await webpageArtifactService(files, { root, buildZip: async () => { throw new Error('Injected packaging error'); } });
     assert.equal(partial.status, 'partial_success'); assert.equal(partial.downloadUrl, null);
-    assert.ok((await fs.readFile(path.join(partial.files.siteDirectory, 'index.html'), 'utf8')).includes('<h1>'));
+    assert.ok((await fs.readFile(path.join(partial.files.siteDirectory, 'index.html'), 'utf8')).includes('<h1 '));
 });
 test('two-stage webpage AI retries invalid content without regenerating the plan', async t => {
     const f = fixtures.startup, values = [fixturePlan(f), { ...fixtureDraft(f), contact: { email: 'invented@example.com', phone: '', address: '' } }, fixtureDraft(f)];
     let calls = 0;
     const client = { models: { generateContent: async () => ({ text: JSON.stringify(values[calls++]), candidates: [{ finishReason: 'STOP' }] }) } };
     const result = await generateService('prompt', f.source, 'webpage', {}, { ai: { client, logger: () => {}, sleep: async () => {} }, artifacts: { root: await temp(t) } });
-    assert.equal(calls, 3); assert.equal(result.status, 'completed'); assert.equal(result.generatedContent.contact.email, f.contact.email);
+    assert.equal(calls, 3); assert.equal(result.status, 'completed_with_warnings'); assert.equal(result.generatedContent.contact.email, f.contact.email);
 });
 for (const address of ['127.0.0.1','0.0.0.0','10.1.2.3','172.16.1.1','192.168.1.1','169.254.169.254','100.64.1.2','198.18.1.1','203.0.113.1','::1','fe80::1','fc00::1','::ffff:127.0.0.1','2002:7f00:1::','2001:db8::1']) test(`SSRF denies ${address}`, () => assert.equal(isPublicAddress(address), false));
 test('public DNS checks every result and pins the chosen address', async () => {

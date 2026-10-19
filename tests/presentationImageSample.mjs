@@ -1,0 +1,18 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {healthcare} from './fixtures/presentationRedesign.mjs';
+import {presentationLayoutService} from '../Service/presentationLayoutService.mjs';
+import {presentationThemeService} from '../Service/presentationThemeService.mjs';
+import {presentationRendererService} from '../Service/presentationRendererService.mjs';
+import {resolvePresentationVisuals} from '../Service/visual/presentationVisuals.mjs';
+import {previewRenderer} from '../renderer/presentation/previewRenderer.mjs';
+const root=path.resolve('generated/presentation-redesign/image-embedding');await fs.mkdir(root,{recursive:true});
+const presentation=structuredClone(healthcare.presentation);presentation.slides=presentation.slides.slice(0,1);
+presentation.slides.push({slideNumber:2,slideType:'text-visual',title:'An Illustrative Laboratory Setting',content:{visualContent:{text:'This public-domain laboratory photograph illustrates a research setting. It is not evidence about a named facility, product or clinical outcome.',visual:{type:'photo',description:'Illustrative laboratory setting',searchQuery:'laboratory'}}},visualRequirement:{role:'foreground',kind:'photo',required:true,description:'Illustrative laboratory setting',altText:'A scientist working in a laboratory',searchQuery:'laboratory'}});
+const ready=presentationRendererService(presentationThemeService(presentationLayoutService(presentation),healthcare.context));
+const buffer=await fs.readFile('assets/webpage/curated/laboratory.jpg');
+const visual=await resolvePresentationVisuals(ready,{}, {cacheRoot:path.join(root,'assets'),providers:{search:async()=>({buffer,source:'CDC',creator:'James Gathany',license:'Public domain',attributionRequired:true,attribution:'James Gathany / CDC',originalUrl:'https://phil.cdc.gov/'})}});
+const preview=await previewRenderer(visual);if(preview.status!=='completed')throw new Error('Image sample conversion failed');
+await fs.copyFile(preview.files.pptxPath,path.join(root,'presentation.pptx'));await fs.copyFile(preview.files.pdfPath,path.join(root,'presentation.pdf'));
+await fs.mkdir(path.join(root,'slides'),{recursive:true});for(const s of preview.slides)await fs.copyFile(s.filePath,path.join(root,'slides',s.fileName));
+await fs.writeFile(path.join(root,'result.json'),JSON.stringify({presentation:visual,preview},null,2));console.log('[IMAGE SAMPLE]',preview.previewCount,preview.quality.preview.status);

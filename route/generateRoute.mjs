@@ -11,6 +11,7 @@ import { webpageAssetHandlers } from '../controller/webpageAssetsController.mjs'
 import { UPLOAD_FORMAT_MESSAGE } from '../Service/input/fileValidation.mjs';
 
 import { documentDownloadHandler, documentPreviewHandler } from '../controller/documentAssetsController.mjs';
+import {documentImageInventory} from '../Service/visual/inputImageAssets.mjs';
 
 export function createGenerationRouter(options = {}) {
 
@@ -25,6 +26,9 @@ export function createGenerationRouter(options = {}) {
     router.post('/generate/urlPrompt', handlers.userUrl);
 
     router.post('/generate/file', upload.single('file'), handlers.userFile);
+    router.post('/presentations/source-images',upload.single('file'),async(req,res,next)=>{
+        try{res.json(await documentImageInventory(req.file));}catch(error){next(error);}
+    });
 
     router.get('/documents/:id/:token/download',documentDownloadHandler(options.documentRoot));
 
@@ -48,6 +52,7 @@ export function createGenerationRouter(options = {}) {
     router.use((error,req,res,next) => {
         if (res.headersSent) return next(error);
         if (error.code === 'UNSUPPORTED_FILE_FORMAT') return res.status(415).json({ message: 'Unsupported file format', error: UPLOAD_FORMAT_MESSAGE, errorCode: error.code });
+        if(error.code==='INVALID_VISUAL_ASSET')return res.status(400).json({message:error.message,errorCode:error.code});
 
         if (!error.code?.startsWith('LIMIT_') && error.code !== 'INVALID_UPLOADED_FILE') {
             return res.status(500).json({ message: 'Unable to deliver the requested artifact', errorCode: 'ARTIFACT_DELIVERY_FAILED' });

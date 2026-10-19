@@ -269,6 +269,7 @@ const renderPresentationSlide = ({
             normalizedSlideData.backgroundAsset?.attribution,
             normalizedSlideData.backgroundAsset?.originalUrl].filter(Boolean);
         if(normalizedSlideData.resolvedVisual?.attribution) notes.push(normalizedSlideData.resolvedVisual.attribution,normalizedSlideData.resolvedVisual.originalUrl || '');
+        for(const a of normalizedSlideData.photoAssets||[normalizedSlideData.photoAsset].filter(Boolean))notes.push(a.attribution||'',a.originalUrl||'',a.license,a.licenseUrl||'',a.changes||'',a.disclosure||'');
         if (notes.length) slide.addNotes(notes.join('\n'));
 
     } catch (error) {

@@ -27,7 +27,7 @@ export async function resolvePublicUrl(value, lookup = dns.lookup) {
 
 // Resolve and pin the validated IP for each hop. Native fetch's separate DNS
 // lookup would leave a rebinding window between validation and connection.
-export async function fetchPublicResource(value, { lookup = dns.lookup, request: requestOverride, timeoutMs = 20000, maxBytes = 2 * 1024 * 1024,
+export async function fetchPublicResource(value, { lookup = dns.lookup, request: requestOverride, timeoutMs = 20000, maxBytes = 2 * 1024 * 1024,signal,
     contentTypes = /^(text\/(html|plain)|application\/xhtml\+xml)(?:;|$)/i, accept = 'text/html,application/xhtml+xml,text/plain' } = {}) {
     const deadline = Date.now() + timeoutMs;
     if(!Number.isSafeInteger(maxBytes)||maxBytes<1)throw new Error('Source byte limit must be a positive integer');
@@ -42,7 +42,7 @@ export async function fetchPublicResource(value, { lookup = dns.lookup, request:
         if (remaining <= 0) throw Object.assign(new Error('Source URL timed out'), { code: 'SOURCE_URL_TIMEOUT' });
         const response = await new Promise((resolve, reject) => {
             const request = requestOverride || (url.protocol === 'https:' ? https.request : http.request);
-            const req = request(url, { method: 'GET', autoSelectFamily: false,
+            const req = request(url, { method: 'GET', autoSelectFamily: false,...(signal?{signal}:{}),
                 headers: { 'User-Agent': 'Ledify-SourceReader/1.0', Accept: accept, 'Accept-Encoding': 'identity' },
                 lookup: (hostname, options, callback) => callback(null, address.address, address.family)
             }, res => {

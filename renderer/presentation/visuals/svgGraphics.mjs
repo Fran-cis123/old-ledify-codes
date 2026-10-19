@@ -8,7 +8,19 @@ export function validateDiagram(d) {
         ids.add(n.id);
     }
     for (const edge of d.edges) if (!ids.has(edge.from) || !ids.has(edge.to) || edge.from === edge.to || (edge.label || '').length > 32) throw new Error('Diagram connections require existing distinct nodes and concise labels');
+    if(new Set(d.edges.map(e=>e.from+'->'+e.to)).size!==d.edges.length)throw new Error('Diagram connections must be unique');
     if (d.kind !== 'labeled' && !d.edges.length) throw new Error('A flow/cycle diagram must specify its real connections');
+    if(d.kind==='cycle'){
+        if(d.nodes.some(n=>d.edges.filter(e=>e.from===n.id).length!==1||d.edges.filter(e=>e.to===n.id).length!==1))throw new Error('A cycle must connect each node with one incoming and one outgoing edge');
+        const visited=new Set();let current=d.nodes[0].id;
+        while(!visited.has(current)){visited.add(current);current=d.edges.find(e=>e.from===current).to;}
+        if(visited.size!==d.nodes.length)throw new Error('A cycle must form one connected return path');
+    }
+    if(d.kind==='flowchart'){
+        const visiting=new Set(),done=new Set();
+        const visit=id=>{if(visiting.has(id))throw new Error('A flowchart must not contain a cycle; use kind cycle for a supported return path');if(done.has(id))return;visiting.add(id);for(const e of d.edges.filter(e=>e.from===id))visit(e.to);visiting.delete(id);done.add(id);};
+        for(const id of ids)visit(id);
+    }
     return true;
 }
 export function diagramSvg(d, colors) {

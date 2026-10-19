@@ -4,9 +4,12 @@ import { createHash } from 'node:crypto';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { getColors } from '../../renderer/presentation/renderHelpers.mjs';
 import { diagramLibrary } from '../../renderer/presentation/visuals/diagramLibrary.mjs';
-import { diagramSvg, validateDiagram, themeBackgroundSvg } from '../../renderer/presentation/visuals/svgGraphics.mjs';
+import { diagramSvg, validateDiagram } from '../../renderer/presentation/visuals/svgGraphics.mjs';
 import { configuredImageProviders } from './imageProviders.mjs';
 import { validateRenderContent } from '../../renderer/presentation/professionalLayouts.mjs';
+import {createImageAssetSession} from './presentationImageAssets.mjs';
+import {imagePolicy} from './imagePolicy.mjs';
+import {planImageCoverage,imageCoverage} from './imageArtDirection.mjs';
 
 export function imageDimensions(buffer) {
     if (!Buffer.isBuffer(buffer) || buffer.length > 12 * 1024 * 1024) throw new Error('Image exceeds the byte limit');
@@ -37,10 +40,6 @@ export function deriveVisualTheme(presentation, context = {}) {
     for(const key of ['textPrimary','textSecondary']) if(contrastRatio(rgb(palette[key]),rgb(palette.background))<4.5) palette[key]=luminance(rgb(palette.background))>.4?'152536':'F5F7FA';
     return { family, topic: context.topic || presentation.title, palette,
         style: context.designPreferences?.visualStyle || 'restrained editorial', audience: context.audience || presentation.inferredContext?.audience || '' };
-}
-async function bounded(call, ms) {
-    let timer; try { return await Promise.race([call(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Image provider timed out')),ms);})]); }
-    finally { clearTimeout(timer); }
 }
 async function storeAsset(buffer, metadata, root, svg) {
     const id = createHash('sha256').update(buffer).digest('hex');
@@ -90,42 +89,44 @@ export async function prepareBackground(providerAsset, theme, root, focal = { x:
 }
 
 export async function resolvePresentationVisuals(presentation, context = {}, options = {}) {
-    const theme=deriveVisualTheme(presentation,context),root=path.resolve(options.cacheRoot || 'generated/visual-assets');
-    const providers=options.providers || configuredImageProviders(),warnings=[],slides=[];
-    const backgroundRequest=presentation.slides.find(s=>s.visualRequirement?.role==='background')?.visualRequirement;
-    let background;
-    if (backgroundRequest && options.external !== false) {
-        const request={...backgroundRequest,theme:theme.family,palette:JSON.stringify(theme.palette)};
-        const cacheKey=createHash('sha256').update(JSON.stringify({request,provider:process.env.PRESENTATION_IMAGE_MODEL || 'configured-search'})).digest('hex');
-        const cacheMeta=path.join(root,cacheKey+'.json');
-        try {
-            const cached=JSON.parse(await fs.readFile(cacheMeta,'utf8'));
-            const buffer=await fs.readFile(path.join(root,cached.id+'.png'));imageDimensions(buffer);
-            if(Date.now()-cached.cachedAt<7*86400000) background={...cached,data:'image/png;base64,'+buffer.toString('base64')};
-        } catch {}
-        for (const method of ['search','generate']) {
-            if(background || !providers[method]) continue;
-            try {
-                const asset=await bounded(()=>providers[method](request),options.providerTimeoutMs || 45000);
-                if(!asset) continue;
-                if(!asset.source || !asset.creator || !asset.license || (asset.attributionRequired && !asset.attribution)) throw new Error('Image provenance/attribution is incomplete');
-                background=await prepareBackground(asset,theme,root,context.designPreferences?.imageFocalPoint);
-                const {data,filePath,...metadata}=background; await fs.writeFile(cacheMeta,JSON.stringify({...metadata,cachedAt:Date.now()}));
-            } catch { warnings.push({code:'IMAGE_PROVIDER_FALLBACK',stage:'visual-resolution',message:`${method === 'search' ? 'Licensed image search' : 'Authorized image generation'} was unavailable or returned an unsuitable asset; using the next safe visual option.`}); }
+    presentation=planImageCoverage(presentation,context);
+    for(const asset of options.userAssets||[]){
+        if(presentation.imageCoveragePlan.reason==='User requested no images'||context.designPreferences?.noImageSlideNumbers?.includes(asset.slideNumber))continue;
+        const slide=presentation.slides.find(s=>s.slideNumber===asset.slideNumber);
+        if(slide&&!['diagram'].includes(slide.visualRequirement?.kind)&&!slide.content?.chart&&!slide.content?.table){
+            slide.visualRequirement={role:slide.slideType==='title'?'background':'foreground',kind:'photo',required:true,description:asset.description,altText:asset.description,searchQuery:asset.description};
         }
     }
-    if(backgroundRequest && !background) warnings.push({code:'BACKGROUND_LOCAL_FALLBACK',stage:'visual-resolution',message:'The requested background uses original theme artwork because no suitable authorized external image was resolved.'});
-    const cover=background || await localAsset(themeBackgroundSvg(theme.family,theme.palette,true),{role:'background',decorative:true,altText:'',kind:'theme-artwork'},root,theme);
-    const texture=await localAsset(themeBackgroundSvg(theme.family,theme.palette,false),{role:'background',decorative:true,altText:'',kind:'subtle-texture'},root,theme);
-    const artworkSvg=themeBackgroundSvg(theme.family,theme.palette,true).replace('width="1920" height="1080" viewBox="0 0 1920 1080"','width="1000" height="1000" viewBox="1000 0 920 1080"');
-    const coverArtwork=await localAsset(artworkSvg,{role:'foreground',decorative:true,altText:'',kind:'theme-artwork'},root);
-    let foregroundDownloads=0;
+    const theme=deriveVisualTheme(presentation,context),root=path.resolve(options.cacheRoot || 'generated/visual-assets');
+    const providers=options.providers || configuredImageProviders(),warnings=[],slides=[];
+    const policy={...imagePolicy(),...options.policy,...(options.providerTimeoutMs?{timeoutMs:options.providerTimeoutMs}:{})};
+    const session=createImageAssetSession({providers,policy,root,external:options.external!==false,userAssets:options.userAssets||[]});
+    const requested=presentation.slides.filter(s=>['photo','illustration'].includes(s.visualRequirement?.kind)).sort((a,b)=>Number(a.visualRequirement.plannedBy==='coverage-default')-Number(b.visualRequirement.plannedBy==='coverage-default'));
+    const assets=await Promise.all(requested.map(async s=>{
+        const direct=(options.userAssets||[]).filter(a=>a.slideNumber===s.slideNumber);
+        if(direct.length===2)return Promise.all(direct.map(a=>session.resolve(presentation,s,theme,context,{...a,composition:'photo-grid'})));
+        return session.resolve(presentation,s,theme,context);
+    }));
+    const photos=new Map(requested.map((s,i)=>[s.slideNumber,assets[i]]));
+    // Plain typographic compositions are intentional. Never manufacture a decorative
+    // scientific-looking asset as a substitute for the requested subject.
+    if(presentation.slides.some(s=>s.visualRequirement?.role==='background'&&!photos.get(s.slideNumber))) warnings.push({code:'BACKGROUND_LOCAL_FALLBACK',stage:'visual-resolution',message:'The requested background was unavailable; a plain theme background preserves readable content.'});
     let plannedDiagrams=0;
     for(const original of presentation.slides){
         const slide={...original},request=slide.visualRequirement || (slide.content?.visualContent ? {role:'foreground',kind:'diagram',required:true,...slide.content.visualContent.visual} : null);
-        if(slide.slideType==='title') slide.coverArtwork=coverArtwork;
-        if(['title','section-divider','conclusion','summary'].includes(slide.slideType)) slide.backgroundAsset=cover;
-        else if(slide.slideNumber%3===0 && !['table','data-chart'].includes(slide.slideType)) slide.backgroundAsset=texture;
+        const resolved=photos.get(slide.slideNumber),photo=Array.isArray(resolved)?resolved.find(Boolean):resolved;
+        if(photo){
+            slide.photoAsset=photo;slide.photoComposition=photo.artDirection.composition;
+            if(Array.isArray(resolved))slide.photoAssets=resolved.filter(Boolean);
+            try{validateRenderContent(slide);slide.visualResolution={status:'resolved',method:photo.generationMethod};slides.push(slide);continue;}
+            catch(error){
+                options.onDiagnostic?.({slideNumber:slide.slideNumber,message:error.message,field:error.field});
+                delete slide.photoAsset;delete slide.photoAssets;delete slide.photoComposition;
+                warnings.push({code:'VISUAL_LAYOUT_FALLBACK',stage:'visual-resolution',slideNumber:slide.slideNumber,message:'The photograph was omitted because it could not fit alongside the complete readable content.'});
+            }
+        }else if(['photo','illustration'].includes(request?.kind)){
+            warnings.push({code:'IMAGE_PROVIDER_FALLBACK',stage:'visual-resolution',slideNumber:slide.slideNumber,message:'No suitable authorized image was resolved within the configured budget; preserving the semantic content.'});
+        }
         if(request?.role==='foreground' || slide.content?.visualContent){
             if(['data-chart','table'].includes(slide.slideType)){
                 slide.visualResolution={status:'fallback',method:'native-data-visual'};
@@ -133,26 +134,12 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
                 slides.push(slide);continue;
             }
             if(['title','section-divider'].includes(slide.slideType)){
-                slide.visualResolution={status:'unresolved',method:'cover-theme-artwork'};
-                warnings.push({code:'VISUAL_UNRESOLVED',stage:'visual-resolution',slideNumber:slide.slideNumber,message:'The cover uses theme artwork; the additional informative foreground visual could not be placed without compromising its title.'});
+                slide.visualResolution={status:'unresolved',method:'typographic-cover'};
+                warnings.push({code:'VISUAL_UNRESOLVED',stage:'visual-resolution',slideNumber:slide.slideNumber,message:'The cover uses a typographic composition; the requested foreground illustration remains unavailable.'});
                 slides.push(slide);continue;
             }
             const description=[slide.title,request?.description,request?.searchQuery].filter(Boolean).join(' ');
             const catalog=diagramLibrary.find(asset=>asset.matches.test(description));
-            if(request?.kind==='photo' && providers.search && options.external!==false && foregroundDownloads<2){
-                foregroundDownloads++;
-                try{
-                    const asset=await bounded(()=>providers.search({...request,theme:theme.family,palette:JSON.stringify(theme.palette)}),options.providerTimeoutMs||20000);
-                    if(asset){
-                        if(!asset.source||!asset.creator||!asset.license||(asset.attributionRequired&&!asset.attribution))throw new Error('Image provenance is incomplete');
-                        const dimensions=imageDimensions(asset.buffer);
-                        if(dimensions.width<800||dimensions.height<600)throw new Error('Foreground image resolution is insufficient');
-                        const img=await loadImage(asset.buffer),canvas=createCanvas(dimensions.width,dimensions.height);canvas.getContext('2d').drawImage(img,0,0);
-                        slide.resolvedVisual=await storeAsset(canvas.toBuffer('image/png'),{...asset,buffer:undefined,role:'foreground',kind:'photo',status:'resolved',altText:request.altText||request.description},root);
-                        slide.visualResolution={status:'resolved',method:'licensed-search'};
-                    }
-                }catch{warnings.push({code:'IMAGE_PROVIDER_FALLBACK',stage:'visual-resolution',slideNumber:slide.slideNumber,message:'The requested foreground photograph could not be resolved from an authorized provider; trying a semantic alternative.'});}
-            }
             let diagram=catalog?.diagram || slide.visualPlan || slide.content?.visualContent?.visual?.diagram;
             if(!diagram && slide.content?.process) {
                 const steps=slide.content.process.steps;
@@ -182,7 +169,9 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
                 slide.visualResolution={status:'unresolved',method:'text-layout-fallback'};
                 warnings.push({code:'VISUAL_UNRESOLVED',stage:'visual-resolution',slideNumber:slide.slideNumber,message:'The requested informative visual could not be resolved accurately; a complete text layout is used and the visual requirement remains unmet.'});
                 // Keep the requirement and status, never put its instructions on slide.
-                slide.layoutId='text-visual-text-fallback';
+                if(slide.slideType==='text-visual')slide.layoutId='text-visual-text-fallback';
+                // Keep existing category/comparison/process compositions when an
+                // additional illustration fails. Never collapse a native visual to prose.
             }
             else if(!diagram){
                 try{validateRenderContent(slide);}catch{
@@ -206,5 +195,8 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
             }
         }
     }
-    return {...presentation,slides,visualTheme:{family:theme.family,style:theme.style},warnings:[...(presentation.warnings||[]),...warnings]};
+    const result={...presentation,slides,visualTheme:{family:theme.family,style:theme.style},warnings:[...(presentation.warnings||[]),...warnings]};
+    result.visualQuality=imageCoverage(result,session.diagnostics,session.budget.report());
+    if(!result.visualQuality.meetsTarget)result.warnings.push({code:'IMAGE_COVERAGE_BELOW_TARGET',stage:'visual-resolution',message:`Resolved meaningful photos/illustrations on ${result.visualQuality.actual} slides; target ${result.visualQuality.target}. Charts and diagrams are reported separately.`});
+    return result;
 }

@@ -4,6 +4,8 @@ import { assertTextFits } from './contentFit.mjs';
 import { validateSlideContent } from '../../Service/presentationContentValidator.mjs';
 import { renderNativeDiagram } from './visuals/nativeDiagram.mjs';
 import { validateDiagram } from './visuals/svgGraphics.mjs';
+import { geometryRecorder } from './geometry.mjs';
+import {renderPhotoComposition} from './photoCompositions.mjs';
 
 const W = 13.333333, H = 7.5, M = .72, CW = W - M * 2;
 const luminance = hex => {
@@ -17,7 +19,12 @@ function readable(fg, bg, minimum = 4.5) {
 
 // All registered layouts consume the canonical schema. Geometry and density checks
 // are shared with the AI repair stage, so no branch slices arrays or invents content.
-export function renderProfessionalSlide({ slide, slideData: d, tokens = {}, pptx }) {
+export function renderProfessionalSlide(args) {
+    const recorder=geometryRecorder(args.slide,args.slideData.slideNumber);
+    renderSlide({...args,slide:recorder.slide});
+    return recorder.validate();
+}
+function renderSlide({ slide, slideData: d, tokens = {}, pptx }) {
     if (d.slideType === 'focused-explanation' && !d.content?.textContent?.body?.trim()) {
         throw Object.assign(new Error(`Slide ${d.slideNumber}: content.textContent.body must contain meaningful text`), { field: 'content.textContent.body', slideNumber: d.slideNumber });
     }
@@ -25,6 +32,7 @@ export function renderProfessionalSlide({ slide, slideData: d, tokens = {}, pptx
     const c = getColors(tokens), t = getTypography(tokens);
     const ink = readable(c.textPrimary, c.background), muted = readable(c.textSecondary, c.background);
     const accent = readable(c.accent, c.background, 3);
+    if(d.photoAsset&&renderPhotoComposition({slide,d,c,t,ink,muted,accent}))return;
     slide.background = { color: c.background };
     if (d.backgroundAsset?.data) slide.addImage({data:d.backgroundAsset.data,x:0,y:0,w:W,h:H,altText:''});
     const rect = (x, y, w, h, color) => slide.addShape('rect', { x, y, w, h, line: { color, transparency: 100 }, fill: { color } });
@@ -33,19 +41,29 @@ export function renderProfessionalSlide({ slide, slideData: d, tokens = {}, pptx
         value = String(value);
         assertTextFits(value, { w, h, fontSize: size }, field, d.slideNumber);
         slide.addText(value, { x, y, w, h, fontFace: t.bodyFamily, fontSize: size, color: ink,
-            margin: 0, breakLine: false, valign: 'top', paraSpaceAfterPt: 6, ...extra });
+            margin: 0, breakLine: false, valign: 'top', paraSpaceAfterPt: 6, ...extra, _field:field });
     };
     const rule = (x, y, w = .65) => rect(x, y, w, .045, accent);
     const max = (items, limit, field) => {
         if (!Array.isArray(items) || items.length > limit) throw Object.assign(new Error(`Slide ${d.slideNumber}: ${field} supports at most ${limit} entries at readable sizes. Restructure this slide.`), { code: 'PRESENTATION_CONTENT_TOO_DENSE', slideNumber: d.slideNumber, field });
         return items;
     };
-    const title = (value = d.title) => text(value, M, .58, CW, 1.25, 34, { bold: true, fontFace: t.headingFamily }, 'title');
+    const title = (value = d.title) => text(value, M, .42, CW, 1.2, 34, { bold: true, fontFace: t.headingFamily }, 'title');
     const footer = () => text(String(d.slideNumber), W - M - .4, 7.05, .4, .25, 12, { color: muted, align: 'right' }, 'slideNumber');
     const content = d.content, type = d.slideType;
     footer();
     if (type === 'title' || type === 'section-divider') {
         const v = content.titleContent || content.sectionContent;
+        if(d.layoutId==='title-editorial'){
+            const bg=ink,fg=readable(c.background,bg),secondary=readable(c.surfaceSecondary,bg);
+            slide.background={color:bg};
+            text(v.title,M,1.25,CW-.35,2.5,44,{bold:true,fontFace:t.headingFamily,color:fg},'title.title');
+            text(v.subtitle,M,4.18,CW-1,1.1,25,{color:secondary},'title.subtitle');
+            text(v.supportingText,M,5.8,CW-1,.9,20,{color:secondary},'title.supportingText');
+            // The page marker was rendered on the old canvas. Cover the footer and redraw it with contrast.
+            rect(W-M-.45,7.0,.55,.35,bg);
+            return;
+        }
         rule(M, 1.48, 1.1);
         const split=!!d.coverArtwork;
         if(split) slide.addImage({data:d.coverArtwork.data,x:8.4,y:1.65,w:4.2,h:4.2,altText:''});
@@ -55,9 +73,9 @@ export function renderProfessionalSlide({ slide, slideData: d, tokens = {}, pptx
         return;
     }
     title();
-    text(d.subtitle, M, 1.63, CW, .42, 18, { color: muted }, 'subtitle');
-    rule(M, 2.08);
-    const top = 2.2, bottom = 6.78, space = bottom - top;
+    text(d.subtitle, M, 1.7, CW, .42, 18, { color: muted }, 'subtitle');
+    rule(M, 2.17);
+    const top = 2.4, bottom = 6.98, space = bottom - top;
     if(d.resolvedVisual && !content.visualContent && !content.process && !content.relationship && !content.chart && !content.table){
         const body=[];
         const collect=(value,key='')=>{if(['id','from','to','type','searchQuery'].includes(key))return;
@@ -66,7 +84,7 @@ export function renderProfessionalSlide({ slide, slideData: d, tokens = {}, pptx
             else if(value&&typeof value==='object')Object.entries(value).forEach(([k,v])=>collect(v,k));};
         collect(content);
         text(body.join('\n'),M,top+.15,5.4,3.95,20,{},'content.visualLayout');
-        if(d.resolvedVisual.diagram) renderNativeDiagram({slide,diagram:d.resolvedVisual.diagram,box:{x:6.45,y:top+.15,w:6.15,h:3.9},ink,accent,fontFace:t.bodyFamily,slideNumber:d.slideNumber});
+        if(d.resolvedVisual.diagram) renderNativeDiagram({slide,diagram:d.resolvedVisual.diagram,box:{x:6.45,y:top-.1,w:6.15,h:3.9},ink,accent,fontFace:t.bodyFamily,slideNumber:d.slideNumber});
         else {
             const visual=d.resolvedVisual,scale=Math.min(6.15/visual.width,3.9/visual.height),w=visual.width*scale,h=visual.height*scale;
             slide.addImage({data:visual.data,x:6.45+(6.15-w)/2,y:top+.15+(3.9-h)/2,w,h,altText:visual.altText});
@@ -112,7 +130,7 @@ export function renderProfessionalSlide({ slide, slideData: d, tokens = {}, pptx
         }
         return grid(steps,'process.steps','list');
     }
-    if (content.timeline) {
+    if (content.timeline && d.layoutId!=='timeline-horizontal') {
         const events=max(content.timeline.events,limits['timeline.events'],'timeline.events'),h=space/events.length;
         events.forEach((event,i)=>{const y=top+i*h;
             text(event.label,M,y,2.5,h-.1,22,{bold:true,color:accent},`timeline.events[${i}].label`);
@@ -121,14 +139,33 @@ export function renderProfessionalSlide({ slide, slideData: d, tokens = {}, pptx
             text(event.description,M+6.9,y,CW-6.9,h-.1,20,{},`timeline.events[${i}].description`);
         }); return;
     }
-    if (content.roadmap) return grid(content.roadmap.phases, 'roadmap.phases');
+    if (content.roadmap || (content.timeline && d.layoutId==='timeline-horizontal')) return progression(content.roadmap?.phases || content.timeline.events,content.roadmap?'roadmap.phases':'timeline.events');
     if (content.textContent) {
         const v = content.textContent;
+        if(d.layoutId==='explanation-editorial'){
+            const sentences=v.body.match(/[^.!?]+(?:[.!?]+|$)/g)?.map(s=>s.trim()).filter(Boolean)||[v.body];
+            const lead=sentences[0],rest=sentences.slice(1).join(' ');
+            if(rest){
+                text(lead,M,top+.2,4.5,3.85,28,{bold:true},'textContent.lead');
+                text(rest,M+5.15,top+.22,CW-5.15,3.85,23,{},'textContent.body');
+            }else text(v.body,M,top+.35,CW-1,3.7,28,{},'textContent.body');
+            if(v.heading&&v.heading!==d.title)text(v.heading,M,6.6,CW,.38,18,{color:muted},'textContent.heading');
+            return;
+        }
         if (v.heading && v.heading !== d.title) text(v.heading, M, top, CW, .9, 28, { bold: true }, 'textContent.heading');
         text(v.body, M, top + 1.15, CW - .4, 3.25, 24, {}, 'textContent.body'); return;
     }
     if (content.summary || content.conclusion) {
         const v = content.summary || content.conclusion, points = v.points || v.supportingPoints;
+        if(d.layoutId==='closing-synthesis'){
+            max(points,content.summary?limits['summary.points']:limits['conclusion.supportingPoints'],'supportingPoints');
+            text(v.statement,M,top+.05,5.05,4.05,32,{bold:true,fontFace:t.headingFamily},'statement');
+            const x=M+5.8,w=CW-5.8,h=4.2/points.length;
+            points.forEach((p,i)=>{
+                rule(x,top+i*h,w);
+                text(p,x,top+i*h+.15,w,h-.24,22,{},`supportingPoints[${i}]`);
+            });return;
+        }
         text(v.statement, M, top, CW, 1.4, 28, { bold: true }, 'statement');
         max(points, content.summary ? limits['summary.points'] : limits['conclusion.supportingPoints'], 'supportingPoints');
         const h = (space - 1.65) / points.length;
@@ -167,15 +204,19 @@ export function renderProfessionalSlide({ slide, slideData: d, tokens = {}, pptx
         const chartTypes = { bar: 'bar', column: 'bar', line: 'line', pie: 'pie', doughnut: 'doughnut', area: 'area' };
         const chartType = chartTypes[v.chartType.toLowerCase()];
         if (!chartType) throw new Error(`Slide ${d.slideNumber}: unsupported chart.chartType "${v.chartType}"`);
+        const values=v.datasets.flatMap(ds=>ds.values),isBar=['bar','column'].includes(v.chartType);
         slide.addChart(chartType, v.datasets.map(ds => ({ name: ds.label, labels: v.labels, values: ds.values })), {
-            x: M, y: top, w: CW, h: 3.55, catAxisLabelFontSize: 20, valAxisLabelFontSize: 18,
+            x: M, y: top, w: d.layoutId==='chart-with-insight'?7.8:CW, h: d.layoutId==='chart-with-insight'?4.05:3.55, catAxisLabelFontSize: 20, valAxisLabelFontSize: 18,
             showLegend: true, legendFontSize: 18, showTitle: false,
             chartColors: [accent, ink, muted], showBorder: false, showValue: false,
             catAxisLabelColor: ink, valAxisLabelColor: ink, legendColor: ink,
             chartArea: { fill: { color: c.background } }, plotArea: { fill: { color: c.background } },
+            ...(isBar&&values.every(v=>v>=0)?{valAxisMinVal:0}:{}),
+            ...(isBar&&values.every(v=>v<=0)?{valAxisMaxVal:0}:{}),
             ...(v.chartType === 'bar' ? { barDir: 'bar' } : { barDir: 'col' })
         });
-        text(v.insight, M, 6, CW, .76, 22, { bold: true }, 'chart.insight'); return;
+        if(d.layoutId==='chart-with-insight')text(v.insight,9.1,top+.6,W-M-9.1,3.65,26,{bold:true},'chart.insight');
+        else text(v.insight, M, 6, CW, .76, 22, { bold: true }, 'chart.insight'); return;
     }
     if (content.quote) {
         const v = content.quote;
@@ -197,6 +238,23 @@ export function renderProfessionalSlide({ slide, slideData: d, tokens = {}, pptx
     }
     if (content.relationship) {
         const v = content.relationship, nodes = max(v.nodes, limits['relationship.nodes'], 'relationship.nodes'), links = max(v.relationships, limits['relationship.relationships'], 'relationship.relationships');
+        const roots=nodes.filter(n=>!links.some(r=>r.to===n.id));
+        if(roots.length===1&&links.length===nodes.length-1&&links.every(r=>r.from===roots[0].id)){
+            const root=roots[0],leaves=nodes.filter(n=>n!==root),gap=.35,w=(CW-gap*(leaves.length-1))/leaves.length;
+            text(root.label,M+CW/2-2.2,top,4.4,.7,26,{bold:true,align:'center'},'relationship.root.label');
+            text(root.description,M+CW/2-3.2,top+.8,6.4,.7,20,{align:'center'},'relationship.root.description');
+            const busY=top+1.7;
+            slide.addShape('line',{x:M+CW/2,y:top+1.45,w:0,h:.25,line:{color:accent,width:1.5}});
+            const centers=leaves.map((n,i)=>M+i*(w+gap)+w/2);
+            slide.addShape('line',{x:centers[0],y:busY,w:centers.at(-1)-centers[0],h:0,line:{color:accent,width:1.5}});
+            leaves.forEach((node,i)=>{const x=M+i*(w+gap),edge=links.find(r=>r.to===node.id);
+                slide.addShape('line',{x:centers[i],y:busY,w:0,h:.1,line:{color:accent,width:1.5}});
+                slide.addShape('line',{x:centers[i],y:top+2.35,w:0,h:.18,line:{color:accent,width:1.5,endArrowType:'triangle'}});
+                text(edge.label,x,top+1.85,w,.45,18,{align:'center',color:muted},`relationship.edges[${i}].label`);
+                text(node.label,x,top+2.65,w,.9,24,{bold:true},`relationship.nodes[${i}].label`);
+                text(node.description,x,top+3.68,w,.85,20,{},`relationship.nodes[${i}].description`);
+            });return;
+        }
         const names = Object.fromEntries(nodes.map(n => [n.id, n.label]));
         const starts=nodes.filter(n=>!links.some(r=>r.to===n.id));
         if(starts.length===1 && links.length===nodes.length-1 && nodes.every(n=>links.filter(r=>r.from===n.id).length<=1)){
@@ -250,7 +308,7 @@ export function renderProfessionalSlide({ slide, slideData: d, tokens = {}, pptx
         // Unresolved descriptions/search queries never become visible slide text.
         if(!visual && !diagram){text(v.text,M,top+.25,CW-.3,3.9,24,{},'visualContent.text');return;}
         text(v.text,M,top+.15,5.1,3.95,22,{},'visualContent.text');
-        if(diagram) renderNativeDiagram({slide,diagram,box:{x:6.45,y:top+.15,w:6.15,h:3.9},ink,accent,fontFace:t.bodyFamily,slideNumber:d.slideNumber});
+        if(diagram) renderNativeDiagram({slide,diagram,box:{x:6.45,y:top-.1,w:6.15,h:3.9},ink,accent,fontFace:t.bodyFamily,slideNumber:d.slideNumber});
         else if(visual?.data) {
             const scale=Math.min(6.15/visual.width,4.1/visual.height),w=visual.width*scale,h=visual.height*scale;
             slide.addImage({data:visual.data,x:6.45+(6.15-w)/2,y:top+.1+(4.1-h)/2,w,h,altText:visual.altText});
@@ -258,6 +316,25 @@ export function renderProfessionalSlide({ slide, slideData: d, tokens = {}, pptx
         text(visual?.caption || diagram?.caption,6.45,6.35,6.15,.65,17,{color:muted},'visual.caption');return;
     }
     throw new Error(`Slide ${d.slideNumber}: no canonical renderer for ${type}`);
+
+    function progression(items,field){
+        max(items,limits[field],field);
+        if(items.length>3){
+            const h=space/items.length;
+            items.forEach((p,i)=>{const y=top+i*h;
+                text(p.label,M,y,2.05,h-.1,20,{color:accent,bold:true},`${field}[${i}].label`);
+                text(p.title,M+2.35,y,3.4,h-.1,22,{bold:true},`${field}[${i}].title`);
+                text(p.description,M+6.1,y,CW-6.1,h-.1,20,{},`${field}[${i}].description`);
+            });return;
+        }
+        const gap=.4,w=(CW-gap*(items.length-1))/items.length;
+        items.forEach((p,i)=>{const x=M+i*(w+gap);
+            text(p.label,x,top+.12,w,.7,20,{color:accent,bold:true},`${field}[${i}].label`);
+            slide.addShape('line',{x,y:top+1,w:w+(i<items.length-1?gap:0),h:0,line:{color:accent,width:2,...(i<items.length-1?{endArrowType:'triangle'}:{})}});
+            text(p.title,x,top+1.28,w,1.05,24,{bold:true},`${field}[${i}].title`);
+            text(p.description,x,top+2.5,w,1.65,20,{},`${field}[${i}].description`);
+        });
+    }
 }
 
 export function validateRenderContent(slideData) {

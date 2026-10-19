@@ -4,7 +4,7 @@ import { assertTextFits } from '../contentFit.mjs';
 export function renderNativeDiagram({ slide, diagram, box, ink, accent, fontFace, slideNumber }) {
     validateDiagram(diagram);
     const { x,y,w,h }=box,cols=['labeled','cycle'].includes(diagram.kind)?2:1,rows=Math.ceil(diagram.nodes.length/cols),rowH=h/rows;
-    const gap=.35,nodeW=cols===2?(w-gap)/2:w-.45;
+    const gap=.35,nodeW=cols===2?(w-gap)/2:w*.65;
     const cycleSlots=Array.from({length:rows},(_,i)=>[1,i]).concat(Array.from({length:rows},(_,i)=>[0,rows-1-i]));
     // Cycle order follows the perimeter; a closing edge returns to the start.
     const positions=diagram.nodes.map((node,i)=>{const slot=diagram.kind==='cycle'?cycleSlots[(i+cycleSlots.length-1)%cycleSlots.length]:[i%cols,Math.floor(i/cols)];return {...node,x:x+slot[0]*(nodeW+gap),y:y+slot[1]*rowH};});
@@ -24,9 +24,18 @@ export function renderNativeDiagram({ slide, diagram, box, ink, accent, fontFace
             assertTextFits(edge.label,{w:nodeW-.3,h:.35,fontSize:18},'visual.diagram.edges.label',slideNumber);
             slide.addText(edge.label,{x:a.x,y:Math.min(a.y,b.y)+rowH-.34,w:nodeW-.3,h:.35,fontFace,fontSize:18,color:ink,margin:0});
         }
+        if(edge.label && cols===1){
+            const labelW=w-nodeW-.25,labelH=Math.min(.7,rowH-.1);
+            assertTextFits(edge.label,{w:labelW,h:labelH,fontSize:18},'visual.diagram.edges.label',slideNumber);
+            slide.addText(edge.label,{x:x+nodeW+.25,y:Math.min(a.y,b.y)+rowH*.6,w:labelW,h:labelH,fontFace,fontSize:18,color:ink,margin:0});
+        }
+        if(edge.label && cols===2 && a.x!==b.x){
+            assertTextFits(edge.label,{w:nodeW-.3,h:.35,fontSize:18},'visual.diagram.edges.label',slideNumber);
+            slide.addText(edge.label,{x:a.x,y:a.y+rowH-.34,w:nodeW-.3,h:.35,fontFace,fontSize:18,color:ink,margin:0});
+        }
     }
     for(const [i,node] of positions.entries()){
-        const size=cols===2?22:21,labelH=cols===2?.8:.38,descH=Math.min(.8,rowH-labelH-.2);
+        const size=cols===2?22:21,labelH=cols===2?.8:.38,descH=Math.min(.8,rowH-labelH-(cols===2?.48:.2));
         const add=(value,yy,hh,fs,bold,field)=>{
             if(!value) return; assertTextFits(value,{w:nodeW-.3,h:hh,fontSize:fs},field,slideNumber);
             slide.addText(value,{x:node.x,y:yy,w:nodeW-.3,h:hh,fontSize:fs,fontFace,color:ink,bold,margin:0,breakLine:false,valign:'top'});

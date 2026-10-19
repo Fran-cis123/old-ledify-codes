@@ -1,0 +1,32 @@
+const integer=(v,f,min,max)=>Number.isFinite(Number(v))?Math.max(min,Math.min(max,Math.floor(Number(v)))):f;
+const amount=(v,f)=>Number.isFinite(Number(v))?Math.max(0,Number(v)):f;
+// Server settings only: clients cannot opt into billing or raise limits.
+export function imagePolicy(env=process.env){
+    return {
+        enabled:env.PRESENTATION_IMAGES_ENABLED!=='false',
+        stockProvider:env.PRESENTATION_STOCK_PROVIDER||'auto',
+        allowGeneration:env.PRESENTATION_ALLOW_IMAGE_GENERATION==='true',
+        generationProvider:env.PRESENTATION_GENERATION_PROVIDER||'gemini',
+        maxGenerated:integer(env.PRESENTATION_MAX_GENERATED_IMAGES,3,0,12),
+        maxImages:integer(env.PRESENTATION_MAX_IMAGES,8,0,12),
+        concurrency:integer(env.PRESENTATION_IMAGE_CONCURRENCY,2,1,3),
+        retries:integer(env.PRESENTATION_IMAGE_RETRIES,1,0,2),
+        timeoutMs:integer(env.PRESENTATION_IMAGE_TIMEOUT_MS,20000,1000,60000),
+        deadlineMs:integer(env.PRESENTATION_IMAGE_DEADLINE_MS,45000,1000,120000),
+        estimatedUnitCost:amount(env.PRESENTATION_IMAGE_ESTIMATED_UNIT_COST,0),
+        maxEstimatedCost:amount(env.PRESENTATION_IMAGE_MAX_ESTIMATED_COST,0),
+        resolution:['1K','2K','4K'].includes(env.PRESENTATION_IMAGE_RESOLUTION)?env.PRESENTATION_IMAGE_RESOLUTION:'2K',
+        quality:integer(env.PRESENTATION_IMAGE_JPEG_QUALITY,88,70,95),
+        cacheDays:integer(env.PRESENTATION_IMAGE_CACHE_DAYS,7,0,30)
+    };
+}
+export function generationBudget(policy){
+    let requests=0,reservedCost=0;
+    return {
+        reserve(){
+            if(!policy.allowGeneration||!policy.estimatedUnitCost||!policy.maxEstimatedCost||requests>=policy.maxGenerated||reservedCost+policy.estimatedUnitCost>policy.maxEstimatedCost+1e-9)return false;
+            requests++;reservedCost+=policy.estimatedUnitCost;return true;
+        },
+        report:()=>({attempts:requests,estimatedReservedCost:Number(reservedCost.toFixed(6)),ceiling:policy.maxEstimatedCost,currency:'server-configured billing currency',actualCost:'not available; confirm provider billing'})
+    };
+}

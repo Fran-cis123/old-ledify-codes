@@ -16,12 +16,14 @@
   "license": "ISC",
   "type": "module",
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "@axe-core/playwright": "4.14.0",
+    "lighthouse": "13.5.0",
+    "nodemon": "^3.1.14",
+    "playwright": "1.62.1"
   },
   "dependencies": {
     "@google/genai": "^2.28.0",
     "@napi-rs/canvas": "0.1.80",
-    "@openrouter/sdk": "^1.4.25",
     "cheerio": "^1.2.0",
     "cors": "^2.8.6",
     "docx": "9.6.1",
@@ -32,11 +34,10 @@
     "mammoth": "^1.13.0",
     "mongoose": "^9.10.2",
     "multer": "^2.4.0",
-    "parse": "^8.6.2",
     "parse5": "7.3.0",
-    "pdf": "^0.1.0",
     "pdf-parse": "^2.4.5",
     "pdf-to-img": "^6.3.0",
-    "pptxgenjs": "^4.0.1"
+    "pptxgenjs": "^4.0.1",
+    "sharp": "0.34.5"
   }
 }

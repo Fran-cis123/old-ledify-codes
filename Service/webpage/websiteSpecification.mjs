@@ -1,0 +1,8 @@
+import {validateSchema} from '../ai/responseValidation.mjs';
+const string={type:'string'},array={type:'array',items:string};
+const object=properties=>({type:'object',properties,required:Object.keys(properties),additionalProperties:false});
+const schema=object({version:{type:'integer'},content:object({mode:string,sections:array,missingFields:array}),identity:object({palette:string,fontPair:string,rationale:string}),layout:object({hero:string,compositions:array,backgrounds:array}),images:object({planned:{type:'integer'},resolved:{type:'integer'},reviewMethod:string}),interactions:array,quality:object({static:string,browser:string,publication:string})});
+export function websiteSpecification(page){
+    const result={version:1,content:{mode:page.contentSpecification?.mode||'source-grounded',sections:page.sections.map(section=>section.id),missingFields:(page.contentSpecification?.missingInformation||[]).map(entry=>entry.field)},identity:{palette:page.theme.paletteId,fontPair:page.designSpec.fontPair,rationale:page.theme.rationale.selection},layout:{hero:page.designBrief.heroComposition,compositions:page.sections.map(section=>section.composition),backgrounds:page.sections.map(section=>section.background)},images:{planned:page.imageStrategy?.planned||0,resolved:page.imageStrategy?.resolved||0,reviewMethod:'Provenance, semantic metadata, dimensions and duplicate-hash checks; human visual review remains required'},interactions:page.creativeDirection.interactions,quality:{static:page.quality.validation.static,browser:page.quality.validation.browser,publication:'requires-human-review'}};
+    validateSchema(result,schema);return result;
+}

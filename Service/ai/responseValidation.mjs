@@ -8,7 +8,7 @@ export class AiGenerationError extends Error {
 }
 
 export function validateSchema(value, schema, location = "$", strict = true) {
-    const fail = message => { throw new AiGenerationError("AI_SCHEMA_VALIDATION_FAILED", `${location}: ${message}`, { field: location,validationRule:'SCHEMA_CONTRACT', repairHint: `${location}: ${message}` }); };
+    const fail = (message,details={}) => { throw new AiGenerationError("AI_SCHEMA_VALIDATION_FAILED", `${location}: ${message}`, { field: location,validationRule:'SCHEMA_CONTRACT', repairHint: `${location}: ${message}`,...details }); };
     if(schema.anyOf) {
         const discriminated=schema.anyOf.find(branch=>branch.properties?.type?.enum?.includes(value?.type));
         if(discriminated)return validateSchema(value,discriminated,location,strict);
@@ -30,8 +30,12 @@ export function validateSchema(value, schema, location = "$", strict = true) {
         value.forEach((item, index) => validateSchema(item, schema.items, `${location}[${index}]`, strict));
     } else if (type === "string") {
         if (typeof value !== "string") fail("expected string");
+        if(schema.minLength!=null&&value.trim().length<schema.minLength)fail(`text must contain at least ${schema.minLength} characters`);
+        if(schema.maxLength!=null&&value.length>schema.maxLength)fail(`text must contain at most ${schema.maxLength} characters`,{maxCharacters:schema.maxLength});
     } else if (type === "integer" || type === "number") {
         if (typeof value !== "number" || !Number.isFinite(value) || (type === "integer" && !Number.isInteger(value))) fail(`expected ${type}`);
+        if(schema.minimum!=null&&value<schema.minimum)fail(`value must be at least ${schema.minimum}`);
+        if(schema.maximum!=null&&value>schema.maximum)fail(`value must be at most ${schema.maximum}`);
     } else if (type === "boolean" && typeof value !== "boolean") fail("expected boolean");
     if (schema.enum && !schema.enum.includes(value)) fail("unsupported enum value");
 }

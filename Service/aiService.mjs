@@ -4,6 +4,7 @@ import { validateDocumentAssets } from '../renderer/document/docxRenderer.mjs';
 import { canonicalTitles, reviewAndRepairPresentation, requestedTopics } from './ai/presentationQuality.mjs';
 import { visualRequirementSchema, diagramSchema } from '../templates/presentation/visualSchemas.mjs';
 import { resolveSlideCount } from './ai/slideCount.mjs';
+import { numberedSlideRequirements, validateNumberedRequirements } from './ai/presentationIntent.mjs';
 import { validateRenderContent } from '../renderer/presentation/professionalLayouts.mjs';
 import { randomUUID } from 'node:crypto';
 import { generateJsonWithRetry } from './ai/generateJsonWithRetry.mjs';
@@ -72,6 +73,9 @@ export const aiService = async (
         return {inputType,input,outputType,context,generatedContent};
     }
     const countPolicy = outputType === "presentation" ? resolveSlideCount(inputType === 'prompt' ? input : '', context) : null;
+    if(countPolicy)for(const requirement of numberedSlideRequirements(inputType==='prompt'?input:'',context)){
+        if(requirement.slideNumber<1||requirement.slideNumber>countPolicy.max)throw Object.assign(new Error(`The instruction for slide ${requirement.slideNumber} exceeds the requested ${countPolicy.max}-slide limit.`),{code:'INVALID_SLIDE_REQUIREMENT',slideNumber:requirement.slideNumber,field:'slideCount'});
+    }
     let outputInstructions = "";
     let outputSchema;
     let strategyInstructions = "";
@@ -1342,7 +1346,7 @@ let plannedSlides;
 let generatedContent = isPresentation && options.initialPresentation ? structuredClone(options.initialPresentation) : await run({
     stage: isPresentation ? 'presentation-outline' : 'content-generation',
     schema, outputType, strict: isPresentation,
-    validate: isPresentation ? value => validateOutline(value, countPolicy, requestedTopics(inputType === 'prompt' ? input : '', context)) : value => {
+    validate: isPresentation ? value => {validateOutline(value, countPolicy, requestedTopics(inputType === 'prompt' ? input : '', context));validateNumberedRequirements(value,numberedSlideRequirements(inputType === 'prompt' ? input : '',context));} : value => {
         if (value.outputType !== outputType) throw new Error('AI returned incorrect outputType');
     },
     request: {

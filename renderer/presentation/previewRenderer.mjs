@@ -4,6 +4,9 @@ import path from "path";
 import crypto from "crypto";
 import { presentationStorageRoot } from '../../Service/presentationStorage.mjs';
 import { validateRenderedPptx } from './renderedOutputValidation.mjs';
+import { validatePreviewImages } from './previewValidation.mjs';
+import { presentationRenderQueue } from './renderQueue.mjs';
+import {validatePhotoPreviews} from './photoQuality.mjs';
 
 import {
     writePresentationFile
@@ -38,7 +41,11 @@ import {
 //
 // =========================================================
 
-export const previewRenderer = async (
+export const previewRenderer=async(presentation,options={})=>{
+    const release=await presentationRenderQueue.acquire();
+    try{return await renderPreview(presentation,options);}finally{release();}
+};
+const renderPreview = async (
     presentation,
     options = {}
 ) => {
@@ -119,7 +126,7 @@ export const previewRenderer = async (
     // 5. GENERATE POWERPOINT
     // =====================================================
 
-    let pptxResult;
+    let pptxResult,outputQuality,previewQuality;
     const stages = { pptx: "pending", pdf: "pending", png: "pending" };
     const partialResult = (stage, error) => {
         stages[stage] = "failed";
@@ -170,7 +177,7 @@ export const previewRenderer = async (
             );
         }
 
-        if(!options.converters?.writePresentationFile) await validateRenderedPptx(pptxResult.filePath,presentation);
+        if(!options.converters?.writePresentationFile) outputQuality=await validateRenderedPptx(pptxResult.filePath,presentation);
         stages.pptx = "completed";
     } catch (error) {
 
@@ -258,6 +265,18 @@ export const previewRenderer = async (
         if (previewImages.length !== presentation.slides.length) {
             throw new Error(`Expected ${presentation.slides.length} previews, received ${previewImages.length}`);
         }
+        if(!options.converters?.convertPdfToImages){
+            previewQuality=await validatePreviewImages(previewImages,presentation.slides.length);
+            try{previewQuality.images=await validatePhotoPreviews(previewImages,presentation);}
+            catch(error){
+                // One bounded conversion repair. Do not regenerate or bill for new images.
+                if(!['PNG_PHOTO_MISSING','PNG_PHOTO_RESOLUTION'].includes(error.code))throw error;
+                previewImages=await convertPdfToImages({pdfPath:pdfResult.pdfPath,outputDirectory:slidesDirectory});
+                previewQuality=await validatePreviewImages(previewImages,presentation.slides.length);
+                previewQuality.images=await validatePhotoPreviews(previewImages,presentation);
+                previewQuality.imageRepairRounds=1;
+            }
+        }
         stages.png = "completed";
 
     } catch (error) {
@@ -317,6 +336,7 @@ export const previewRenderer = async (
     return {
         previewId,
         status: "completed",
+        quality:{pptx:outputQuality,preview:previewQuality},
         stages,
         warnings: [],
         previewCount: slides.length,

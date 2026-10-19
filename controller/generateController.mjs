@@ -7,6 +7,7 @@ import { publicGenerationResult, compactOptionalContext } from '../Service/publi
 import { validateUploadedFile } from '../Service/input/fileValidation.mjs';
 import { combineGenerationInput } from '../Service/input/combinedInput.mjs';
 import { addPresentationPublicUrls } from '../Service/presentationPublicUrls.mjs';
+import {prepareInputImageAssets,validateVisualAssetInputs} from '../Service/visual/inputImageAssets.mjs';
 
 export function createGenerationHandlers({ model = generateModel, generator = generateService, extractFile = fileService, extractUrl = urlService } = {}) {
     const handle = inputType => async (req, res) => {
@@ -20,6 +21,7 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
                 try { context = JSON.parse(context); } catch { throw Object.assign(new Error('Context must be valid JSON'), { code: 'INVALID_CONTEXT' }); }
             }
             context = requestContext(context, slideCount);
+            if(outputType==='presentation')validateVisualAssetInputs(context);
             if (outputType === 'presentation') resolveSlideCount('', context);
             let input, label,kind=inputType,sources;
             if(inputType==='combined') {
@@ -35,8 +37,10 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
                 label = req.body[field];
                 input = inputType === 'url' ? await extractUrl(label) : label;
             }
+            const visualInput=outputType==='presentation'?await prepareInputImageAssets(context,req.file):null;
+            if(visualInput)context=visualInput.context;
             record = await model.create({ inputType:kind, input: label, outputType, status: 'processing' });
-            let result = await generator(kind, input, outputType, context);
+            let result = await generator(kind, input, outputType, context,visualInput?.assets.length?{visuals:{userAssets:visualInput.assets}}:{});
             if(sources)result={...result,sources};
             result = publicGenerationResult(result);
             result = addPresentationPublicUrls(result,req);
@@ -79,6 +83,10 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
                 return res.status(unavailable?503:502).json({message:'AI provider could not complete generation',error:providerMessage,errorCode:code,stage:error.stage||'generation',requestId:error.requestId,providerStatus:error.providerStatus,providerReason:error.providerReason,model:error.model,lastErrorCode:error.lastErrorCode});
             }
             if (code === 'UNSUPPORTED_FILE_FORMAT') return res.status(415).json({ message: 'Unsupported file format', error: error.message, errorCode: code });
+            if(code==='PRESENTATION_RENDER_BUSY'){
+                res.set?.('Retry-After','15');
+                return res.status(503).json({message:'Presentation rendering is busy. Retry shortly.',errorCode:code,stage:'presentation-rendering'});
+            }
             if(['SOURCE_URL_TOO_LARGE','SOURCE_URL_TEXT_TOO_LARGE'].includes(code))return res.status(413).json({message:error.message,error:error.message,errorCode:code,stage:error.stage,maxBytes:error.maxBytes,maxCharacters:error.maxCharacters});
             const clientError = /^(INVALID_|SOURCE_URL|WEBPAGE_VALIDATION|WEBPAGE_STATIC)/.test(code);
             return res.status(clientError ? 400 : 500).json({ message: clientError ? error.message : 'Generation failed; see errorCode and stage', error: clientError ? error.message : 'Unable to complete generation',

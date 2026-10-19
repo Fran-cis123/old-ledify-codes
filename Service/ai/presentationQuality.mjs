@@ -31,11 +31,12 @@ export const visibleSlideText = slide => {
     return values.join(' ');
 };
 export function unsupportedAbsoluteClaims(slides, source = '') {
-    const patterns=[/\b(?:entirely|completely) (?:prevents?|eliminates?)\b/ig,/\bguarantees? (?:safety|security|success)\b/ig,/\bzero risk\b/ig];
+    const patterns=[/\b(?:entirely|completely) (?:prevents?|eliminates?)\b/ig,/\bguarantees? (?:safety|security|success)\b/ig,/\bzero risk\b/ig,
+        /\b(?:legal )?liability (?:stays|rests|remains|lies) (?:solely |always )?with (?:the )?(?:human|clinician|doctor)\b/ig];
     return slides.flatMap(slide=>patterns.flatMap(pattern=>[...visibleSlideText(slide).matchAll(pattern)]
         .filter(match=>!source.toLowerCase().includes(match[0].toLowerCase()))
         .map(match=>({slideNumber:slide.slideNumber,severity:'error',code:'CLARITY',message:'An unqualified absolute claim requires repair: '+match[0],
-            repairInstruction:'Replace the unsupported absolute claim with the precise mechanism, scope and limitations supported by the source. Do not guarantee that a control prevents every vulnerability.'}))));
+            repairInstruction:'Replace the unsupported absolute claim with the precise mechanism, scope and limitations supported by the source. Do not guarantee prevention of every vulnerability or settled legal liability. Describe liability as dependent on jurisdiction, approved scope and circumstances unless authoritative supplied evidence establishes more.'}))));
 }
 export function canonicalTitles(presentation) {
     const first = presentation.slides[0];

@@ -2,6 +2,7 @@ import { presentationStrategies } from "../../templates/presentation/presentatio
 import { slideTypes } from "../../templates/presentation/slideTypes.mjs";
 import { AiGenerationError } from "./responseValidation.mjs";
 import { requestedTopics } from './presentationQuality.mjs';
+import { numberedSlideRequirements } from './presentationIntent.mjs';
 
 export function outlineProviderSchema(schema) {
     // Bounding the large slide-object array can exceed Gemini's decoding
@@ -19,6 +20,7 @@ Preserve supplied facts, numbers, units, and uncertainty. Never invent study-spe
 For research without results, explain background or proposed work; omit unsupported results and identify essential missing evidence.
 Use charts/statistics only with quantitative data in the input, or when the user explicitly requests hypothetical/illustrative data. Label all such invented figures visibly as illustrative assumptions, not real performance. Never invent numbers presented as facts. Timelines require supplied events/dates or clearly labeled proposed plans.
 Use established general knowledge carefully. Avoid unsupported absolute claims and identify scientific simplifications as approximations.
+Do not assert that legal liability automatically remains with a clinician or transfers to software. Accountability depends on jurisdiction, approved scope and circumstances; distinguish operational human review from legal responsibility.
 Stay on topic. Adapt to the explicit purpose and audience; leave unknown personal context empty.`;
 
 export function buildOutlinePrompt(inputType, input, context, countPolicy = { min: 8, max: 10 }) {
@@ -27,15 +29,18 @@ ${groundingRules}
 Select a strategy as a flexible narrative guide, not a mandatory slide sequence.
 Use ${countPolicy.min === countPolicy.max ? `exactly ${countPolicy.min}` : `${countPolicy.min}–${countPolicy.max}`} slides TOTAL, including opening and ending. Start with a title slide; for multiple slides finish with summary or conclusion.
 Build a source-specific progression: opening, explanation, evidence or practical detail, implications, synthesis. Vary appropriate content types without forcing unsupported visuals.
+Choose content structure before prose: distinct architectures/methods belong in comparison or grouped cards; real ordered work belongs in process; historical events in timeline; proposed or conceptual evolution in roadmap (label speculative stages explicitly); dependencies in relationship. Use focused-explanation only for a single idea that genuinely needs prose. Never force every subject into process arrows or a card grid. Cover and conclusion should carry a clear central message. The objective records each slide's main message and evidence needed. Honor every numbered slide instruction at its exact position.
 Number slides sequentially from 1. Give each slide a short, specific, distinct title and a useful new purpose.
 Do not add empty sections just to complete a strategy. Return requirements: exact explicitly requested topics mapped to slideNumbers with concrete essentialPoints; if no explicit topics, identify a few essential objectives. Each requirement references at most 2 slides and contains at most 3 essentialPoints. A topic title alone is not adequate coverage. Prioritize requested subjects within the exact count; combine related optional detail instead of adding slides. Each slide needs a communication objective. Presentation title/subtitle are the title-slide source of truth. Content-slide subtitles are optional but visible, concise and useful (normally under 90 characters).
 Choose visualRequirement per slide when useful. A diagram is distinct from a photo. For a scientific structure require an accurate labeled diagram, never a decorative photo substitute. Cover/conclusion may use a coherent thematic background; charts/tables usually use clean backgrounds. Do not force images on all slides. Preserve deliberately repeated comparison series; otherwise avoid three identical consecutive compositions.
+Plan text and visuals together. For suitable 8–10 slide subjects aim for 5–7 meaningful photographic or illustrative slides, including a topic-specific photographic cover. Set visualRequirement.kind to photo or illustration and describe the exact subject, action and message; give a concrete licensed-stock searchQuery. For image-led content use concise text-visual, focused-explanation, or short comparisons that leave room for large photographs. Choose native charts/tables/diagrams when they communicate the message more accurately; decorative shapes do not count toward image coverage. Respect requests for no photography. Precise anatomy/causal mechanisms require verified diagrams, not invented synthetic evidence. Stock/synthetic imagery must not impersonate actual named facilities, products or events. Vary photo compositions and subjects while maintaining coherent art direction.
 Return JSON matching the schema.
 Strategies: ${JSON.stringify(presentationStrategies.map(({ id, family, communicationGoal }) => ({ id, family, communicationGoal })))}
 Slide types: ${JSON.stringify(slideTypes.map(({ id, description }) => ({ id, description })))}
 Input type: ${inputType}
 Context: ${JSON.stringify(context)}
 Explicit requested topics (copy these labels exactly into requirements): ${JSON.stringify(requestedTopics(inputType === 'prompt' ? input : '',context))}
+Explicit numbered slide requirements: ${JSON.stringify(numberedSlideRequirements(inputType === 'prompt' ? input : '',context))}
 Source input: ${JSON.stringify(input)}`;
 }
 

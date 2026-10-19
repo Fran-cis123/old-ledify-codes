@@ -1,0 +1,92 @@
+[
+  {
+    "industry": "healthcare",
+    "file": "laboratory.jpg",
+    "creator": "James Gathany / CDC",
+    "license": "Public domain (US federal government)",
+    "licenseUrl": "https://creativecommons.org/publicdomain/mark/1.0/",
+    "alt": "A CDC scientist pipetting samples in a laboratory",
+    "subject": "laboratory research",
+    "role": "hero",
+    "source": "Wikimedia Commons curated catalog",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:CDC_scientist_transfers_H7N9.png",
+    "illustrative": true,
+    "changes": "Resized and compressed by Ledify."
+  },
+  {
+    "industry": "hospitality",
+    "file": "food.jpg",
+    "creator": "Daderot",
+    "license": "CC0 1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "alt": "A prepared Cobb salad photographed in Cambridge, Massachusetts",
+    "subject": "food photography",
+    "role": "hero",
+    "source": "Wikimedia Commons curated catalog",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:Cobb_salad_-_Cambridge%2C_MA_-_20191114_122911.jpg",
+    "illustrative": true,
+    "changes": "Resized and compressed by Ledify."
+  },
+  {
+    "industry": "real-estate",
+    "file": "interior.jpg",
+    "creator": "Jolene Hardy",
+    "license": "CC0 1.0 (published before 5 June 2017)",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "alt": "A modern wooden interior with a lounge, bar and pool table",
+    "subject": "residential interior",
+    "role": "hero",
+    "source": "Wikimedia Commons curated catalog",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:Modern_wooden_house_interior_(Unsplash).jpg",
+    "illustrative": true,
+    "changes": "Resized and compressed by Ledify."
+  },
+  {
+    "industry": "legal",
+    "file": "courthouse-facade.jpg",
+    "creator": "Jebulon",
+    "license": "CC0 1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "alt": "The facade of the Palace of Justice in Rome, Italy",
+    "subject": "court architecture",
+    "role": "hero",
+    "source": "Wikimedia Commons curated catalog",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:Courthouse_facade%2C_Rome%2C_Italy.jpg",
+    "illustrative": true,
+    "changes": "Resized and compressed by Ledify."
+  },
+  {
+    "industry": "education",
+    "file": "library.jpg",
+    "creator": "Jorge Mendoza",
+    "license": "CC0 1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "alt": "Book stacks and walkways inside the Vasconcelos public library in Mexico City",
+    "subject": "library and learning environment",
+    "role": "hero",
+    "source": "Wikimedia Commons curated catalog",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:Estanter%C3%ADa_de_la_Biblioteca_Vasconcelos.jpg",
+    "illustrative": true,
+    "changes": "Resized and compressed by Ledify."
+  },
+  {
+    "industry": "retail",
+    "file": "clothing.jpg",
+    "creator": "Tim Wright",
+    "license": "CC0 1.0 (published before 5 June 2017)",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "alt": "Shirts and jackets hanging on a clothing rail in a home in San Diego",
+    "subject": "fashion clothing wardrobe",
+    "keywords": [
+      "apparel",
+      "garments",
+      "textiles"
+    ],
+    "role": "hero",
+    "source": "Wikimedia Commons curated catalog",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:Clothing_organized_at_home_(Unsplash).jpg",
+    "originalImageUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f2/Clothing_organized_at_home_(Unsplash).jpg/1280px-Clothing_organized_at_home_(Unsplash).jpg",
+    "illustrative": true,
+    "changes": "Resized and compressed by Ledify; further responsive derivatives may be created."
+  }
+]

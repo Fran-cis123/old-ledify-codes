@@ -2,6 +2,7 @@ import { renderProfessionalSlide } from './professionalLayouts.mjs';
 
 // Preserve public layout IDs while sharing the canonical content contract.
 const supported = new Set([
+    'title-editorial','closing-synthesis','explanation-editorial',
     "title-centered",
     "title-split",
     "section-divider-centered",
