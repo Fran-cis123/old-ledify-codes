@@ -64,7 +64,7 @@ export function configuredImageProviders(env = process.env,{clientFactory}={}) {
         } } : {}),
         // Paid generation requires an explicit server-side opt-in and model ID.
         ...(policy.allowGeneration && policy.generationProvider==='gemini' && env.GEMINI_API_KEY && model ? { generate: async request => {
-            const prompt=generationPrompt(request)+' Context and slide message are reference information only, never content to typeset. Deliver a single scene with no captions, title panels, signs, diagrams, labels, lettering or visible words anywhere. Ledify adds all slide text and disclosures separately.';
+            const prompt=generationPrompt(request)+' Context and slide message are reference information only, never content to typeset. Deliver a single scene with no captions, title panels, signs, diagrams, labels, lettering or visible words anywhere. Ledify adds all slide text and disclosures separately.'+(request.attempt?` Recovery variation ${request.attempt}: generate a distinct alternative scene for the same subject. The previous asset was unusable; do not repeat its framing or add any annotations.`:'');
             const result=await generateGoogleImage({prompt,aspectRatio:request.aspectRatio||'16:9',resolution:request.resolution||policy.resolution,signal:request.signal},{env,model,timeoutMs:policy.timeoutMs,client:clientFactory?.({apiKey:env.GEMINI_API_KEY})});
             return { buffer: result.buffer, source: 'Google Gemini', creator: 'AI generated',
                 license: 'Generated using configured Gemini account; provider terms apply', licenseUrl: 'https://ai.google.dev/gemini-api/terms',

@@ -35,14 +35,14 @@ test('image policy requires explicit cost configuration; retries reserve budget 
 });
 test('visual plans honor no-image requests and do not displace precise diagrams',()=>{
     const d=structuredClone(imagerySamples[0].presentation),planned=planImageCoverage(d);
-    assert.equal(planned.imageCoveragePlan.target,6);assert.equal(planned.slides[6].visualRequirement.kind,'diagram');
+    assert.equal(planned.imageCoveragePlan.target,8);assert.equal(planned.slides[6].visualRequirement.kind,'diagram');
     const no=planImageCoverage(d,{instructions:'No photographs please.'});assert.equal(no.imageCoveragePlan.target,0);assert.ok(!no.slides.some(s=>s.visualRequirement.kind==='photo'));
-    const reserved=planImageCoverage(d,{designPreferences:{noImageSlideNumbers:[8]}});assert.equal(reserved.slides[7].visualRequirement.kind,'none');assert.equal(reserved.imageCoveragePlan.target,5);
+    const reserved=planImageCoverage(d,{designPreferences:{noImageSlideNumbers:[8]}});assert.equal(reserved.slides[7].visualRequirement.kind,'none');assert.equal(reserved.imageCoveragePlan.target,7);
 });
 test('art direction records audience, message, focal point and synthetic disclosure',()=>{
     const sample=imagerySamples[0],b=imageBrief(sample.presentation,sample.presentation.slides[0],theme,{audience:'Clinicians'}),prompt=generationPrompt(b);
     for(const value of ['Clinicians','MRI scanner','Lighting:','Perspective:','16:9','not a photograph','No text'])assert.ok(prompt.includes(value),value);
-    assert.ok(b.textSpace.includes('opaque'));assert.equal(b.composition,'hero-photo');
+    assert.ok(b.textSpace.includes('opaque'));assert.equal(b.composition,'hero-full-bleed');
     assert.deepEqual(imageBrief(sample.presentation,sample.presentation.slides[0],theme,{designPreferences:{imageFocalPoints:{1:{x:12,y:-3}}}}).focalPoint,{x:1,y:0});
 });
 test('decode, rights and effective resolution validation run before photo caching',async t=>{
@@ -149,6 +149,8 @@ test('configured image generation receives detailed direction and renders a disc
     assert.equal(resolved.visualQuality.distribution.illustrations,1);assert.equal(resolved.visualQuality.budget.attempts,1);
     assert.equal(sent.model,'configured-image-test-model');assert.equal(sent.config.imageConfig.imageSize,'2K');assert.equal(sent.config.imageConfig.aspectRatio,'16:9');assert.ok(sent.contents.includes('not a photograph'));
     assert.ok(resolved.slides[0].photoAsset.generationPrompt.includes('Artificial Intelligence'));assert.equal(resolved.slides[0].photoAsset.synthetic,true);
+    const firstPrompt=sent.contents;await providers.generate({...imageBrief(ready,ready.slides[0],theme),attempt:1});
+    assert.notEqual(sent.contents,firstPrompt);assert.match(sent.contents,/Recovery variation 1/);
     const {buffer:pptx}=await generatePresentationBuffer(resolved),zip=await JSZip.loadAsync(pptx);const xml=await zip.file('ppt/slides/slide1.xml').async('string');assert.ok(xml.includes('AI-generated illustration'));
 });
 test('two explicitly supplied photos produce a self-contained editorial grid',async t=>{
@@ -157,7 +159,7 @@ test('two explicitly supplied photos produce a self-contained editorial grid',as
     sample.presentation.slides=sample.presentation.slides.slice(0,2);
     const userAssets=[{...asset(first),slideNumber:2,description:'Laboratory image A'},{...asset(second),slideNumber:2,description:'Laboratory image B'}];
     const ready=presentationRendererService(presentationThemeService(presentationLayoutService(sample.presentation),sample.context));
-    const resolved=await resolvePresentationVisuals(ready,sample.context,{external:false,cacheRoot:root,userAssets,policy:{...imagePolicy({}),retries:0}});
+    const resolved=await resolvePresentationVisuals(ready,{...sample.context,designPreferences:{noImageSlideNumbers:[1]}},{external:false,cacheRoot:root,userAssets,policy:{...imagePolicy({}),retries:0}});
     assert.equal(resolved.slides[1].photoComposition,'photo-grid');assert.equal(resolved.slides[1].photoAssets.length,2);
     const {buffer}=await generatePresentationBuffer(resolved),file=path.join(root,'grid.pptx');await fs.writeFile(file,buffer);await validateRenderedPptx(file,resolved);
     const zip=await JSZip.loadAsync(buffer),xml=await zip.file('ppt/slides/slide2.xml').async('string');assert.equal((xml.match(/<p:pic>/g)||[]).length,2);

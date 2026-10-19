@@ -11,7 +11,7 @@ await fs.writeFile(path.join(root,'request.json'),JSON.stringify({textPrompt:inp
 try{
     const initialPresentation=process.argv.includes('--review-saved')?JSON.parse(await fs.readFile(path.join(root,'ai-content.json'),'utf8')):undefined;
     const result=await generateService('prompt',input,'presentation',{...healthcare.context,requiredTopics:titles},
-        {ai:{initialPresentation,onCheckpoint:content=>fs.writeFile(path.join(root,'ai-content.json'),JSON.stringify(content,null,2))},visuals:{external:false,diagramPlanner:false}});
+        {ai:{initialPresentation,onCheckpoint:content=>fs.writeFile(path.join(root,'ai-content.json'),JSON.stringify(content,null,2))},visuals:{diagramPlanner:false}});
     await fs.writeFile(path.join(root,'result.json'),JSON.stringify(result,null,2));
     await fs.copyFile(result.preview.files.pptxPath,path.join(root,'presentation.pptx'));
     if(result.preview.files.pdfPath)await fs.copyFile(result.preview.files.pdfPath,path.join(root,'presentation.pdf'));

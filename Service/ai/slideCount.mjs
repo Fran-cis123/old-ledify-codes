@@ -1,5 +1,17 @@
 export const MAX_SLIDES = 12;
 
+function describesSubset(match,instructions){
+    const before=instructions.slice(0,match.index).split(/[.!?;\n]/).at(-1).toLowerCase();
+    const after=instructions.slice(match.index+match[0].length).split(/[.!?;\n]/)[0].toLowerCase();
+    const feature=/\b(?:imagery|images?|photos?|photographs?|illustrations?|diagrams?|charts?|tables?|videos?|visuals?|animations?|timelines?|comparisons?|citations?|references?|speaker notes|bullet points)\b/;
+    // A count governing the presentation itself remains authoritative even
+    // when the same sentence subsequently asks for visual content.
+    if(/\b(?:create|make|generate|build|produce|prepare|deliver|write|design)\b[^.!?;\n]{0,35}$/.test(before)&&!/(?:\bon|\bacross|\bwithin|\bthroughout)\s+(?:(?:at least|at most|exactly|only|about)\s+)?$/.test(before))return false;
+    if(feature.test(before)&&/\b(?:on|across|in|within|throughout|over|for|to|covering)\s+(?:(?:at least|at most|exactly|only|about|approximately)\s+)?(?:the\s+)?$/.test(before))return true;
+    // "Seven slides should contain images" is coverage, not deck length.
+    return /^\s*(?:(?:must|should|will|can)\s+)?(?:contain|include|feature|show|use|have|with)\b/.test(after)&&feature.test(after)&&! /\b(?:presentation|powerpoint|deck|total|overall)\b/.test(before);
+}
+
 // Explicit API context wins over natural-language instructions. Counts include covers.
 export function resolveSlideCount(input, context = {}) {
     let count = context.slideCount;
@@ -9,8 +21,10 @@ export function resolveSlideCount(input, context = {}) {
             twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90, hundred: 100 };
         const instructions = [input, ...(Array.isArray(context.keyInstructions) ? context.keyInstructions : [])].join('\n');
         const number = `(?:-?\\d+(?:\\.\\d+)?|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|${Object.keys(words).join('|')})`;
-        const matches = [...instructions.matchAll(new RegExp(`(?<![\\w.\\-])(${number})[\\s-]+slides?\\b`, 'gi')),
-            ...instructions.matchAll(/\b(?:slide\s*count|number\s*of\s*slides|slides)\s*[:=]\s*(-?\d+(?:\.\d+)?)\b/gi)];
+        const matches = [
+            ...[...instructions.matchAll(new RegExp(`(?<![\\w.\\-])(${number})[\\s-]+slides?\\b`, 'gi'))].filter(match=>!describesSubset(match,instructions)),
+            ...instructions.matchAll(/\b(?:slide\s*count|number\s*of\s*slides|slides)\s*[:=]\s*(-?\d+(?:\.\d+)?)\b/gi)
+        ];
         const counts = [...new Set(matches.map(m => {
             const token = m[1].toLowerCase();
             return /^-?\d/.test(token) ? Number(token) : token.split(/[ -]/).reduce((n, part) => n + words[part], 0);

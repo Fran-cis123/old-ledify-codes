@@ -5,6 +5,8 @@ import { load } from 'cheerio';
 import { checkGeometry } from './geometry.mjs';
 import { visibleSlideText } from '../../Service/ai/presentationQuality.mjs';
 import {createHash} from 'node:crypto';
+import sharp from 'sharp';
+import {PHOTO_FRAMES} from './photoCompositions.mjs';
 
 const normalize = text => text.replace(/\s+/g,' ').trim();
 export async function validateRenderedPptx(filePath, presentation) {
@@ -12,8 +14,12 @@ export async function validateRenderedPptx(filePath, presentation) {
     const files=Object.keys(zip.files).filter(name=>/^ppt\/slides\/slide\d+\.xml$/.test(name));
     if(files.length!==presentation.slides.length) throw new Error('Rendered PowerPoint slide count does not match the plan');
     const report=[];
+    const required=presentation.imageCoveragePlan?.required===false?new Set():new Set(presentation.imageCoveragePlan?.requiredSlideNumbers||presentation.slides.map(s=>s.slideNumber));
+    const decoded=new Set();
     for(const [i,slide] of presentation.slides.entries()){
         const xml=await zip.file(`ppt/slides/slide${i+1}.xml`).async('string'),$=load(xml,{xmlMode:true});
+        const hasMedia=$('p\\:pic').length>0;
+        if(required.has(slide.slideNumber)&&(!hasMedia||!slide.photoAsset))throw Object.assign(new Error(`Slide ${i+1} has no required self-contained photographic/illustrative picture`),{code:'PPTX_REQUIRED_IMAGE_MISSING',stage:'presentation-image-validation',slideNumber:i+1,missingSlides:[i+1]});
         const text=normalize($('a\\:t').map((i,node)=>$(node).text()).get().join(' '));
         const elements=[];
         $('p\\:sp,p\\:pic,p\\:graphicFrame').each((index,node)=>{
@@ -33,7 +39,7 @@ export async function validateRenderedPptx(filePath, presentation) {
         const visual=slide.content?.visualContent?.visual;
         const intended=[slide.title,slide.subtitle,visibleSlideText(slide)].filter(Boolean).join(' ');
         if(visual?.searchQuery && text.includes(visual.searchQuery) && !intended.includes(visual.searchQuery)) throw Object.assign(new Error(`Rendered slide ${i+1} exposes an internal search query`),{slideNumber:i+1,field:'renderedOutput.searchQuery'});
-        const hasMedia=$('p\\:pic').length>0;
+        let embeddedPictures=0;
         for(const photo of slide.photoAssets||[slide.photoAsset].filter(Boolean)){
             const rels=load(await zip.file(`ppt/slides/_rels/slide${i+1}.xml.rels`).async('string'),{xmlMode:true});
             let embedded=false;
@@ -42,13 +48,22 @@ export async function validateRenderedPptx(filePath, presentation) {
                 const relation=rels('Relationship').toArray().find(n=>rels(n).attr('Id')===id);
                 if(!relation||rels(relation).attr('TargetMode')==='External')continue;
                 const target=path.posix.normalize(path.posix.join('ppt/slides',rels(relation).attr('Target')));
-                const entry=zip.file(target);if(entry&&createHash('sha256').update(await entry.async('nodebuffer')).digest('hex')===photo.id)embedded=true;
+                const entry=zip.file(target);
+                if(entry&&/^ppt\/media\//.test(target)){
+                    const buffer=await entry.async('nodebuffer');
+                    if(createHash('sha256').update(buffer).digest('hex')===photo.id){
+                        const metadata=await sharp(buffer,{limitInputPixels:32000000}).metadata(),frame=PHOTO_FRAMES[slide.photoComposition||'photo-editorial'];
+                        if(!['jpeg','png','webp'].includes(metadata.format)||metadata.pages>1||!frame||metadata.width/frame.w<90||metadata.height/frame.h<90)throw Object.assign(new Error(`Slide ${i+1}: embedded picture has invalid dimensions or insufficient effective resolution`),{code:'PPTX_REQUIRED_IMAGE_MISSING',stage:'presentation-image-validation',slideNumber:i+1,missingSlides:[i+1]});
+                        if(!decoded.has(target)){await sharp(buffer,{limitInputPixels:32000000}).stats();decoded.add(target);}
+                        embedded=true;embeddedPictures++;
+                    }
+                }
             }
-            if(!embedded)throw new Error(`Rendered slide ${i+1} is missing its self-contained photo asset`);
+            if(!embedded)throw Object.assign(new Error(`Rendered slide ${i+1} is missing its self-contained photo asset`),{code:'PPTX_REQUIRED_IMAGE_MISSING',stage:'presentation-image-validation',slideNumber:i+1,missingSlides:[i+1]});
         }
         if(slide.backgroundAsset && !hasMedia) throw new Error(`Rendered slide ${i+1} is missing its background image`);
         if(slide.resolvedVisual?.diagram) for(const node of slide.resolvedVisual.diagram.nodes) if(!text.includes(normalize(node.label))) throw new Error(`Rendered slide ${i+1} is missing a diagram label`);
-        report.push({slideNumber:i+1,titlePresent:true,subtitlePresent:!!subtitle,hasMedia,hasDiagram:!!slide.resolvedVisual?.diagram,layoutId:slide.layoutId,visibleWords:text.split(/\s+/).length,geometry});
+        report.push({slideNumber:i+1,titlePresent:true,subtitlePresent:!!subtitle,hasMedia,requiredPicture:required.has(slide.slideNumber),embeddedPictures,hasDiagram:!!(slide.resolvedVisual?.diagram||slide.content?.relationship||slide.content?.visualContent?.visual?.diagram),hasChart:!!slide.content?.chart,hasTable:!!slide.content?.table,layoutId:slide.photoComposition||slide.layoutId,visibleWords:text.split(/\s+/).length,geometry});
     }
     for(const name of Object.keys(zip.files).filter(name=>/^ppt\/media\//.test(name) && !zip.files[name].dir)) if(!(await zip.file(name).async('nodebuffer')).length) throw new Error('PowerPoint contains an empty image asset');
     for(const name of Object.keys(zip.files).filter(name=>name.endsWith('.rels'))){
@@ -61,5 +76,5 @@ export async function validateRenderedPptx(filePath, presentation) {
             if(!zip.file(resolved))throw new Error(`PowerPoint has a missing internal asset relationship: ${resolved}`);
         });
     }
-    return {status:'completed',slides:report,layoutDiversity:{distinct:new Set(presentation.slides.map(s=>s.layoutId)).size,total:report.length},aestheticReview:'requires-human-review'};
+    return {status:'completed',slides:report,embeddedImages:decoded.size,slidesWithPictures:report.filter(s=>s.embeddedPictures>0).length,requiredImageSlides:required.size,layoutDiversity:{distinct:new Set(presentation.slides.map(s=>s.photoComposition||s.layoutId)).size,total:report.length},aestheticReview:'requires-human-review'};
 }

@@ -1,15 +1,26 @@
+export function wantsTextOnly(context={}){
+    return /\b(?:text[ -]only|(?:no|without|avoid)\s+(?:any\s+)?(?:photos?|photographs?|photography|images?|pictures?))\b/i.test([context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].join(' '));
+}
+export function photoCompositionFor(slide){
+    if(slide.slideType==='title')return 'hero-full-bleed';
+    if(slide.slideType==='section-divider')return 'photo-divider';
+    if(slide.content?.chart||slide.content?.table||slide.content?.relationship||slide.content?.timeline||slide.content?.visualContent?.visual?.diagram)return 'photo-technical';
+    return slide.content?.comparison?'photo-comparison':slide.slideNumber%3===0?'photo-panel':'photo-editorial';
+}
+export const photoSignature=slide=>JSON.stringify([slide.title,slide.objective,slide.visualRequirement,photoCompositionFor(slide)]);
 export function imageBrief(presentation,slide,theme,context={}){
-    const request=slide.visualRequirement||{};
+    const request=slide.imageRequirement||slide.visualRequirement||{};
     const point=context.designPreferences?.imageFocalPoints?.[slide.slideNumber]||context.designPreferences?.imageFocalPoint||{x:.5,y:.5};
     const coordinate=v=>Number.isFinite(Number(v))?Math.max(0,Math.min(1,Number(v))):.5;
-    const composition=slide.slideType==='title'?'hero-photo':slide.slideType==='section-divider'?'photo-divider':slide.content?.comparison?'photo-comparison':slide.slideNumber%3===0?'photo-panel':'photo-editorial';
-    return {...request,slideNumber:slide.slideNumber,subject:presentation.title,message:slide.objective||slide.title,
+    const composition=photoCompositionFor(slide);
+    return {...request,slideNumber:slide.slideNumber,slideTitle:slide.title,subject:presentation.title,message:slide.objective||slide.title,
         audience:context.audience||presentation.inferredContext?.audience||'general audience',
         description:request.description||`${slide.title}; illustrative context for ${presentation.title}`,
         searchQuery:request.searchQuery||[presentation.title,slide.title].join(' ').slice(0,160),
         purpose:request.role==='background'?'opening context':slide.objective||slide.title,
         theme:theme.family,palette:theme.palette,style:theme.style,
-        composition,aspectRatio:composition==='hero-photo'?'16:9':'4:3',
+        composition,aspectRatio:composition.startsWith('hero-')?'16:9':'4:3',preferredPlacement:composition,cropStrategy:'cover-with-focal-point',
+        sourceStrategy:request.sourceStrategy||'generate-first',qualityRequirements:{minWidth:800,minHeight:600,minEffectivePpi:90,maxBytes:12*1024*1024},
         lighting:'natural, restrained contrast, consistent daylight',perspective:'editorial eye-level or subject-appropriate wide view',
         focalPoint:{x:coordinate(point.x),y:coordinate(point.y)},
         textSpace:'Text sits on a separate opaque theme panel; preserve the subject in the image area.',
@@ -17,22 +28,34 @@ export function imageBrief(presentation,slide,theme,context={}){
         scientificAccuracy:'No invented diagnostic findings, anatomical structures, certifications, logos or real-world evidence.'};
 }
 export function generationPrompt(brief){
-    return `Create exactly one professional editorial image supporting a presentation. Subject: ${brief.subject}. Slide message: ${brief.message}. Audience: ${brief.audience}. Specific scene: ${brief.description}. Composition: ${brief.composition}; aspect ${brief.aspectRatio}; focal point ${JSON.stringify(brief.focalPoint)}. Lighting: ${brief.lighting}. Perspective: ${brief.perspective}. Visual tone: ${brief.style}; theme ${brief.theme}; palette ${JSON.stringify(brief.palette)}. ${brief.textSpace} ${brief.scientificAccuracy} No text, logos, watermarks or charts. ${brief.syntheticDisclosure}`;
+    // RGB dictionaries can be mistaken for instructions to draw a brand board.
+    // Translate colors to atmosphere words; keep exact RGB tokens in slide CSS.
+    const colors=[...new Set(Object.values(brief.palette||{}).filter(v=>typeof v==='string'&&/^#?[a-f\d]{6}$/i.test(v)).map(value=>{
+        const rgb=value.replace('#','').match(/../g).map(v=>parseInt(v,16)/255),max=Math.max(...rgb),min=Math.min(...rgb),light=(max+min)/2;
+        if(light<.13)return 'near black';if(light>.88)return 'soft white';if(max-min<.1)return light<.4?'charcoal gray':'neutral gray';
+        const [r,g,b]=rgb,delta=max-min,hue=((max===r?(g-b)/delta:max===g?(b-r)/delta+2:(r-g)/delta+4)*60+360)%360;
+        return (light<.35?'deep ':'muted ')+(hue<30?'red':hue<65?'warm ochre':hue<155?'green':hue<195?'teal':hue<260?'blue':hue<320?'violet':'rose');
+    }))].slice(0,5).join(', ');
+    return `Return exactly one uninterrupted, edge-to-edge editorial scene, not a presentation slide, moodboard, design sheet or brand guide. No text, typography, legends, palette strips, color swatches, captions, UI, borders or labels anywhere in the image. Subject: ${brief.subject}. Slide message is context only: ${brief.message}. Audience: ${brief.audience}. Specific scene: ${brief.description}. Aspect ratio ${brief.aspectRatio}; focal point ${JSON.stringify(brief.focalPoint)}. Lighting: ${brief.lighting}. Perspective: ${brief.perspective}. Visual tone: ${brief.style}. Color atmosphere: ${colors}; use these tones only for the scene, never display samples or codes. ${brief.textSpace} ${brief.scientificAccuracy} No text, logos, watermarks or charts. ${brief.syntheticDisclosure} Only depict the subject, with absolutely no presentation copy or design annotations.`;
 }
 export function planImageCoverage(presentation,context={}){
-    const noPhotos=/\b(no|without|avoid)\s+(?:any\s+)?(?:photos?|photographs?|photography|images?)\b/i.test([context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].join(' '));
+    const noPhotos=wantsTextOnly(context);
     const slides=presentation.slides.map(s=>({...s}));
     const excluded=new Set(Array.isArray(context.designPreferences?.noImageSlideNumbers)?context.designPreferences.noImageSlideNumbers:[]);
     for(const s of slides)if(excluded.has(s.slideNumber)&&['photo','illustration','texture'].includes(s.visualRequirement?.kind))s.visualRequirement={role:'none',kind:'none',required:false,description:'',searchQuery:'',altText:''};
-    const eligible=slides.filter(s=>!excluded.has(s.slideNumber)&&!s.content?.chart&&!s.content?.table&&!s.content?.relationship&&!s.content?.process&&!['diagram'].includes(s.visualRequirement?.kind));
-    const target=noPhotos?0:Math.min(eligible.length,Math.ceil(slides.length*.65));
-    // Supplement missing visual plans without replacing a requested precise diagram or data visual.
-    for(const s of eligible.slice(0,target)){
-        if(noPhotos)break;
-        if(!s.visualRequirement||s.visualRequirement.kind==='none'||s.visualRequirement.kind==='texture')s.visualRequirement={role:s.slideType==='title'?'background':'foreground',kind:'photo',required:false,description:`Editorial context for ${s.title}; illustrative, not evidence of a specific named organization.`,searchQuery:[presentation.title,s.title].join(' '),altText:`Illustrative context for ${s.title}`,plannedBy:'coverage-default'};
+    const eligible=slides.filter(s=>!excluded.has(s.slideNumber));
+    const target=noPhotos?0:eligible.length;
+    for(const s of slides){
+        if(noPhotos||excluded.has(s.slideNumber)){delete s.imageRequirement;delete s.photoAsset;delete s.photoAssets;delete s.photoComposition;continue;}
+        const supplied=['photo','illustration'].includes(s.visualRequirement?.kind)?s.visualRequirement:{};
+        // A supporting photo is independent of the slide's editable chart or
+        // precise diagram. Never replace scientific evidence with AI imagery.
+        s.imageRequirement={...supplied,role:s.slideType==='title'?'background':'foreground',kind:supplied.kind||'illustration',required:true,
+            description:supplied.description||`Contextual editorial illustration supporting ${s.title}. ${s.objective||''} Illustrative context, not evidence of actual events or a named organization's facilities.`,
+            searchQuery:supplied.searchQuery||[presentation.title,s.title].join(' '),altText:supplied.altText||`Illustrative context for ${s.title}`,sourceStrategy:supplied.sourceStrategy||'generate-first'};
     }
     if(noPhotos)for(const s of slides)if(['photo','illustration','texture'].includes(s.visualRequirement?.kind))s.visualRequirement={role:'none',kind:'none',required:false,description:'',searchQuery:'',altText:''};
-    return {...presentation,slides,imageCoveragePlan:{target,eligibleSlides:eligible.length,totalSlides:slides.length,reason:noPhotos?'User requested no images':'Approximately 65% where photography/illustration is suitable; precise diagrams and data take precedence'}};
+    return {...presentation,slides,imageCoveragePlan:{required:!noPhotos,target,requiredSlideNumbers:noPhotos?[]:eligible.map(s=>s.slideNumber),eligibleSlides:eligible.length,totalSlides:slides.length,reason:noPhotos?'User requested no images':'A relevant embedded picture on every required slide, alongside editable charts and diagrams'}};
 }
 export function imageCoverage(presentation,diagnostics=[],budget={}){
     const counts={photographs:0,illustrations:0,diagrams:0,charts:0,tables:0,textOnly:0};const sources={};
@@ -45,5 +68,7 @@ export function imageCoverage(presentation,diagnostics=[],budget={}){
         else counts.textOnly++;
     }
     const actual=counts.photographs+counts.illustrations,target=presentation.imageCoveragePlan?.target||0;
-    return {totalSlides:presentation.slides.length,target,actual,meetsTarget:actual>=target,distribution:counts,sourceTypes:sources,failedRequests:diagnostics.filter(d=>d.status==='failed'),missingAssets:presentation.slides.filter(s=>['photo','illustration'].includes(s.visualRequirement?.kind)&&!s.photoAsset&&!s.resolvedVisual).map(s=>s.slideNumber),budget,aestheticReview:'requires rendered human review'};
+    const required=presentation.imageCoveragePlan?.requiredSlideNumbers||[];
+    const missingAssets=presentation.slides.filter(s=>required.includes(s.slideNumber)&&!s.photoAsset).map(s=>s.slideNumber);
+    return {totalSlides:presentation.slides.length,target,actual,meetsTarget:missingAssets.length===0&&actual>=target,distribution:counts,sourceTypes:sources,diagnostics,failedRequests:diagnostics.filter(d=>d.status==='failed'),missingAssets,perSlide:presentation.slides.map(s=>({slideNumber:s.slideNumber,required:required.includes(s.slideNumber),hasPicture:!!s.photoAsset,assetId:s.photoAsset?.id})),budget,aestheticReview:'requires rendered human review'};
 }

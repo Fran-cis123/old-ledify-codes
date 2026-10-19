@@ -7,12 +7,14 @@ export function imagePolicy(env=process.env){
         stockProvider:env.PRESENTATION_STOCK_PROVIDER||'auto',
         allowGeneration:env.PRESENTATION_ALLOW_IMAGE_GENERATION==='true',
         generationProvider:env.PRESENTATION_GENERATION_PROVIDER||'gemini',
-        maxGenerated:integer(env.PRESENTATION_MAX_GENERATED_IMAGES,3,0,12),
-        maxImages:integer(env.PRESENTATION_MAX_IMAGES,8,0,12),
+        // This is paid attempts, not successful assets: leave recovery room for
+        // twelve image-bearing slides while keeping maxImages separately bounded.
+        maxGenerated:integer(env.PRESENTATION_MAX_GENERATED_IMAGES,24,0,36),
+        maxImages:integer(env.PRESENTATION_MAX_IMAGES,12,0,12),
         concurrency:integer(env.PRESENTATION_IMAGE_CONCURRENCY,2,1,3),
         retries:integer(env.PRESENTATION_IMAGE_RETRIES,1,0,2),
-        timeoutMs:integer(env.PRESENTATION_IMAGE_TIMEOUT_MS,20000,1000,60000),
-        deadlineMs:integer(env.PRESENTATION_IMAGE_DEADLINE_MS,45000,1000,120000),
+        timeoutMs:integer(env.PRESENTATION_IMAGE_TIMEOUT_MS,60000,1000,60000),
+        deadlineMs:integer(env.PRESENTATION_IMAGE_DEADLINE_MS,180000,1000,300000),
         estimatedUnitCost:amount(env.PRESENTATION_IMAGE_ESTIMATED_UNIT_COST,0),
         maxEstimatedCost:amount(env.PRESENTATION_IMAGE_MAX_ESTIMATED_COST,0),
         resolution:['1K','2K','4K'].includes(env.PRESENTATION_IMAGE_RESOLUTION)?env.PRESENTATION_IMAGE_RESOLUTION:'2K',

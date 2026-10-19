@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { generateJsonWithRetry } from '../ai/generateJsonWithRetry.mjs';
-import { generationConcurrency, generateInBatches } from '../ai/concurrency.mjs';
+import { generationConcurrency, generateContentUnits as generateInBatches } from '../ai/concurrency.mjs';
 import { requestedTopics } from '../ai/presentationQuality.mjs';
 import { outlineSchema, sectionSchema, reviewSchema } from './documentSchema.mjs';
 import { validateDocumentOutline, validateDocumentSection, validateDocumentContent, sectionText, wordCount } from './documentValidation.mjs';
 import { documentStyle } from '../../renderer/document/docxRenderer.mjs';
+import {measureStage} from '../performance.mjs';
 
 const numbers={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,twelve:12,fifteen:15,twenty:20,thirty:30};
 export function resolveDocumentPolicy(input,context={}) {
@@ -47,7 +48,11 @@ export async function generateDocumentContent({client,inputType,input,context={}
     const document={outputType:'document',...plan,sections:[],length:policy,references,assets,citationStyle:context.citationStyle||'numeric',warnings:[],sourceText:input};
     const sectionValidation=section=>({references,assets,source:input,targetWords:section.targetWords,documentType:plan.documentType,...(policy.requestedWords?{minRatio:.8,maxRatio:1.2}:{})});
     const blockRules='Use only fields matching each block type: paragraph {type,text,referenceIds?}; heading {type,text,level:2 or 3}; list {type,items:string[],ordered:boolean,referenceIds?}; table {type,columns:string[],rows:[{cells:string[]}],caption?,referenceIds?}; code {type,text}; quote {type,text,referenceIds?}; caption {type,text}; image {type,assetId,caption?,referenceIds?}; pageBreak {type}; sectionBreak {type,orientation}. Never put level, caption, rows, items or text on unrelated block types. Do not repeat the top-level section heading as a heading block. Prefer complete paragraphs unless a list or table is more useful. Do not insert page or section breaks unless expressly needed.';
-    const makeSection=async(section,instruction='')=>ask('document-section',sectionContract,`${blockRules}\nDocument outline: ${JSON.stringify(plan)}\nSource: ${source}\nGenerate only ${JSON.stringify(section)}. Target ${section.targetWords} words in substantive blocks. Preserve exact section id and heading. Already written section summaries: ${JSON.stringify(document.sections.filter(s=>s.id!==section.id).map(s=>({heading:s.heading,opening:sectionText(s).slice(0,250)})))}\n${instruction}`,value=>validateDocumentSection(value,section,sectionValidation(section)),section.id);
+    const makeSection=async(section,instruction='')=>{
+        const {minRatio=.65,maxRatio=1.5}=sectionValidation(section);
+        const minimum=Math.ceil(section.targetWords*minRatio),maximum=Math.floor(section.targetWords*maxRatio);
+        return ask('document-section',sectionContract,`${blockRules}\nDocument outline: ${JSON.stringify(plan)}\nSource: ${source}\nGenerate only ${JSON.stringify(section)}. Target ${section.targetWords} words in substantive blocks; total visible content MUST contain ${minimum}–${maximum} words. Count paragraphs, list items and table cells together. Aim near the target, not either boundary; develop distinct explanation without padding. Preserve exact section id and heading. Already written section summaries: ${JSON.stringify(document.sections.filter(s=>s.id!==section.id).map(s=>({heading:s.heading,opening:sectionText(s).slice(0,250)})))}\n${instruction}`,value=>validateDocumentSection(value,section,sectionValidation(section)),section.id);
+    };
     await generateInBatches(plan.sections,generationConcurrency(options.sectionConcurrency??process.env.LEDIFY_DOCUMENT_CONCURRENCY,3),async section=>{
         let saved=options.initialSections?.find(s=>s.id===section.id),repair='';
         if(saved)try{validateDocumentSection(saved,section,sectionValidation(section));}catch(error){repair=error.repairHint||'Repair the invalid saved section.';saved=undefined;}
@@ -60,10 +65,12 @@ export async function generateDocumentContent({client,inputType,input,context={}
             await options.onReview?.(review,round);
             if(!review.issues.length) {document.quality={status:'reviewed',repairRounds:round};break;}
             if(round===2) throw Object.assign(new Error('Substantive document quality issues remain after bounded repairs.'),{code:'DOCUMENT_QUALITY_FAILED',stage:'document-quality-review',requestId});
-            for(const id of new Set(review.issues.map(issue=>issue.sectionId))) {const index=document.sections.findIndex(s=>s.id===id);document.sections[index]=await makeSection(plan.sections[index],`Targeted repair: ${review.issues.filter(issue=>issue.sectionId===id).map(issue=>issue.instruction).join('; ')}`);await options.onCheckpoint?.(document);}
+            await generateInBatches([...new Set(review.issues.map(issue=>issue.sectionId))],generationConcurrency(options.sectionConcurrency??process.env.LEDIFY_DOCUMENT_CONCURRENCY,3),
+                id=>{const index=document.sections.findIndex(s=>s.id===id);return makeSection(plan.sections[index],`Targeted repair: ${review.issues.filter(issue=>issue.sectionId===id).map(issue=>issue.instruction).join('; ')}`);},
+                async(section,id)=>{const index=document.sections.findIndex(s=>s.id===id);document.sections[index]=section;await options.onCheckpoint?.(document);});
         }
     }
-    validateDocumentContent(document);
+    await measureStage('document-validation',()=>validateDocumentContent(document));
     if(!assets.length&&/\b(?:diagrams?|images?|illustrations?|photographs?)\b/i.test(instructions))document.warnings.push({code:'DOCUMENT_VISUALS_TEXT_ONLY',message:'No image assets were supplied. Requested visuals use text schematics, tables or prose; automatic image generation is unavailable in this document pipeline.'});
     document.length.actualWords=wordCount(document.sections.map(sectionText).join('\n'));
     if(policy.requestedWords&&Math.abs(document.length.actualWords-policy.targetWords)>policy.targetWords*.2)throw Object.assign(new Error('Document word count remains outside the requested length tolerance.'),{code:'DOCUMENT_LENGTH_FAILED',stage:'document-validation',requestId});

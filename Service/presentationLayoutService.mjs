@@ -1,5 +1,5 @@
 import { getLayoutsForSlideType } from '../templates/presentation/presentationLayouts.mjs';
-import { validateRenderContent } from '../renderer/presentation/professionalLayouts.mjs';
+import { validatePlannedRenderContent } from '../renderer/presentation/professionalLayouts.mjs';
 import { canonicalTitles } from './ai/presentationQuality.mjs';
 import { visualIntent } from './ai/presentationIntent.mjs';
 
@@ -28,7 +28,7 @@ export function presentationLayoutService(generatedContent, context = {}) {
         const candidates=[preferred,...available.filter(id=>id!==preferred)];
         if(repeat&&!intentional&&available.length>1) candidates.push(candidates.shift());
         let error;
-        for(const layoutId of candidates){try{validateRenderContent({...slide,layoutId});slide.layoutId=layoutId;break;}catch(e){error=e;}}
+        for(const layoutId of candidates){try{validatePlannedRenderContent({...slide,layoutId});slide.layoutId=layoutId;break;}catch(e){error=e;}}
         if(!slide.layoutId) throw error;
         if(repeat&&!intentional&&slide.layoutId===preferred) warnings.push({code:'LAYOUT_REPETITION',stage:'layout-selection',slideNumber:slide.slideNumber,message:'This composition repeats because alternate compatible layouts could not preserve readable content.'});
         slides.push(slide);

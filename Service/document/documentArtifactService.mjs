@@ -3,16 +3,17 @@ import path from 'node:path';
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { renderDocumentDocx, validateDocxArtifact, documentStyle } from '../../renderer/document/docxRenderer.mjs';
 import { renderDocumentPreview } from '../../renderer/document/documentPreview.mjs';
+import {measureStage} from '../performance.mjs';
 export const DOCUMENT_ROOT=path.resolve('generated/documents');
 export const documentTokenHash=token=>createHash('sha256').update(token).digest('hex');
 export async function documentArtifactService(document,context={},options={}) {
     const id=randomUUID(),token=randomBytes(32).toString('hex'),root=path.resolve(options.root||DOCUMENT_ROOT),directory=path.join(root,id);
     if(path.dirname(directory)!==root)throw new Error('Document artifact directory escaped its root.');
     try {
-        const buffer=await (options.render||renderDocumentDocx)(document,context);
+        const buffer=await measureStage('docx-render',()=>(options.render||renderDocumentDocx)(document,context));
         const style=documentStyle(document,context);
-        const validation=await validateDocxArtifact(buffer,document);
-        const preview=await renderDocumentPreview(document,context);
+        const validation=await measureStage('docx-validation',()=>validateDocxArtifact(buffer,document));
+        const preview=await measureStage('document-preview',()=>renderDocumentPreview(document,context));
         await fs.mkdir(directory,{recursive:true});
         await fs.writeFile(path.join(directory,'document.docx'),buffer,{flag:'wx'});
         await fs.writeFile(path.join(directory,'preview.html'),preview,{flag:'wx'});

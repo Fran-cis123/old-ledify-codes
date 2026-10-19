@@ -7,6 +7,7 @@ import { validateRenderedPptx } from './renderedOutputValidation.mjs';
 import { validatePreviewImages } from './previewValidation.mjs';
 import { presentationRenderQueue } from './renderQueue.mjs';
 import {validatePhotoPreviews} from './photoQuality.mjs';
+import {measureStage} from '../../Service/performance.mjs';
 
 import {
     writePresentationFile
@@ -150,10 +151,10 @@ const renderPreview = async (
 
     try {
 
-        pptxResult = await (options.converters?.writePresentationFile || writePresentationFile)(
+        pptxResult = await measureStage('pptx-render',()=>(options.converters?.writePresentationFile || writePresentationFile)(
             presentation,
             pptxPath
-        );
+        ));
 
         if (
             !pptxResult ||
@@ -177,8 +178,9 @@ const renderPreview = async (
             );
         }
 
-        if(!options.converters?.writePresentationFile) outputQuality=await validateRenderedPptx(pptxResult.filePath,presentation);
+        if(!options.converters?.writePresentationFile) outputQuality=await measureStage('pptx-validation',()=>validateRenderedPptx(pptxResult.filePath,presentation));
         stages.pptx = "completed";
+        await options.onArtifact?.({stage:'pptx',previewId,downloadUrl:`/api/presentations/${previewId}/download`});
     } catch (error) {
 
         throw Object.assign(new Error(
@@ -197,11 +199,11 @@ const renderPreview = async (
 
     try {
 
-        pdfResult = await (options.converters?.convertPptxToPdf || convertPptxToPdf)({
+        pdfResult = await measureStage('pdf-conversion',()=>(options.converters?.convertPptxToPdf || convertPptxToPdf)({
             pptxPath: pptxResult.filePath,
             pdfPath,
             workingDirectory: previewDirectory
-        });
+        }));
 
         if (
             !pdfResult ||
@@ -229,6 +231,7 @@ const renderPreview = async (
             "[PREVIEW] PDF generated successfully"
         );
         stages.pdf = "completed";
+        await options.onArtifact?.({stage:'pdf',previewId,downloadUrl:`/api/presentations/${previewId}/pdf`,previewUrl:`/api/presentations/${previewId}/preview`});
 
     } catch (error) {
 
@@ -245,10 +248,10 @@ const renderPreview = async (
 
     try {
 
-        previewImages = await (options.converters?.convertPdfToImages || convertPdfToImages)({
+        previewImages = await measureStage('png-conversion',()=>(options.converters?.convertPdfToImages || convertPdfToImages)({
             pdfPath: pdfResult.pdfPath,
             outputDirectory: slidesDirectory
-        });
+        }));
 
         if (
             !Array.isArray(previewImages) ||

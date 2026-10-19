@@ -1,6 +1,6 @@
 // Public API projection. Internal services retain paths/assets for conversion,
 // but HTTP clients only need identifiers, metadata and API-relative URLs.
-const privateKeys = new Set(['filePath','previewDirectory','pptxPath','pdfPath','siteDirectory','slidesDirectory','directory','zipPath','cacheRoot','base64']);
+const privateKeys = new Set(['filePath','previewDirectory','pptxPath','pdfPath','siteDirectory','slidesDirectory','directory','zipPath','cacheRoot','base64','imageLayoutPlanned']);
 export function publicGenerationResult(value) {
     if(value instanceof Date) return value.toISOString();
     if(Array.isArray(value)) return value.map(publicGenerationResult);

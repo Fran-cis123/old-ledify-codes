@@ -8,13 +8,15 @@ import { numberedSlideRequirements, validateNumberedRequirements } from './ai/pr
 import { validateRenderContent } from '../renderer/presentation/professionalLayouts.mjs';
 import { randomUUID } from 'node:crypto';
 import { generateJsonWithRetry } from './ai/generateJsonWithRetry.mjs';
-import { generationConcurrency, generateInBatches } from './ai/concurrency.mjs';
+import { generationConcurrency, generateContentUnits as generateInBatches } from './ai/concurrency.mjs';
 import { buildOutlinePrompt, buildSlidePrompt, validateOutline, outlineProviderSchema } from './ai/presentationPrompts.mjs';
 import { SLIDE_TYPE_CONTENT_MAP, PRESENTATION_COLLECTION_LIMITS } from '../templates/presentation/slideContentSchemas.mjs';
 import { validateSlideContent } from './presentationContentValidator.mjs';
+import { imageSlideSchema, contentBudgetPrompt } from './ai/presentationContentBudget.mjs';
 import { AiGenerationError } from './ai/responseValidation.mjs';
 import { validateQuantitativeGrounding } from './ai/sourceGrounding.mjs';
 import { repairPresentationValidation } from './ai/presentationValidation.mjs';
+import {photoCompositionFor,wantsTextOnly} from './visual/imageArtDirection.mjs';
 import {
     GoogleGenAI,
     Type
@@ -1361,6 +1363,7 @@ let generatedContent = isPresentation && options.initialPresentation ? structure
 });
 if (isPresentation) {
     plannedSlides=generatedContent.slides.map(({slideNumber,title,objective})=>({slideNumber,title,objective}));
+    for(const slide of generatedContent.slides)slide.imageLayoutPlanned=!wantsTextOnly({...context,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')})&&!context.designPreferences?.noImageSlideNumbers?.includes(slide.slideNumber);
     canonicalTitles(generatedContent);
     const contentProperties = outputSchema.properties.slides.items.properties.content.properties;
     contentProperties.visualContent.properties.visual.properties.diagram = diagramSchema;
@@ -1374,13 +1377,16 @@ if (isPresentation) {
     }
     contentProperties.chart.properties.chartType.enum = ['bar', 'column', 'line', 'pie', 'doughnut', 'area'];
     const previous = [];
+    await options.onSlideCheckpoint?.(generatedContent);
     const generateSlide = async (slide, repairInstruction = '') => {
         const contentKey = SLIDE_TYPE_CONTENT_MAP[slide.slideType];
-        const slideSchema = {
+        const usesImage=!wantsTextOnly({...context,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')})&&!context.designPreferences?.noImageSlideNumbers?.includes(slide.slideNumber);
+        const baseSlideSchema = {
             type: Type.OBJECT,
             properties: { [contentKey]: contentProperties[contentKey] },
             required: [contentKey], additionalProperties: false
         };
+        const slideSchema=usesImage?imageSlideSchema(baseSlideSchema):baseSlideSchema;
         return run({
             stage: 'slide-content-generation', slideNumber: slide.slideNumber,
             schema: slideSchema, outputType,
@@ -1388,12 +1394,16 @@ if (isPresentation) {
                 if (slide.slideType === 'title') content.titleContent = { ...content.titleContent, title: generatedContent.title, subtitle: generatedContent.subtitle || '' };
                 const completedSlide = { ...slide, content };
                 validateSlideContent(completedSlide);
-                validateRenderContent(completedSlide);
+                if(usesImage){
+                    // Dry-run the actual photo layout while retries are still
+                    // available. The marker never becomes a saved image asset.
+                    validateRenderContent({...completedSlide,photoAsset:{data:'dry-layout-only',altText:'Image area'},photoComposition:photoCompositionFor(completedSlide)});
+                }else validateRenderContent(completedSlide);
                 validateQuantitativeGrounding(completedSlide, input);
             },
             request: {
                 model: process.env.GEMINI_SLIDE_MODEL || 'gemini-3.5-flash',
-                contents: buildSlidePrompt(input, context, generatedContent, slide, previous) + (repairInstruction ? `\nTargeted quality repair; preserve all correct content and the same canonical structure:\n${repairInstruction}` : ''),
+                contents: buildSlidePrompt(input, context, generatedContent, slide, previous) + contentBudgetPrompt(slideSchema) + (repairInstruction ? `\nTargeted quality repair; preserve all correct content and the same canonical structure:\n${repairInstruction}` : ''),
                 config: { responseMimeType: 'application/json', responseJsonSchema: slideSchema,
                     maxOutputTokens: 4096 }
             }
@@ -1401,10 +1411,11 @@ if (isPresentation) {
     };
     await generateInBatches(generatedContent.slides,
         generationConcurrency(options.slideConcurrency??process.env.LEDIFY_SLIDE_CONCURRENCY),
-        slide=>options.initialPresentation?slide.content:generateSlide(slide),
-        (content,slide)=>{
+        slide=>options.initialPresentation&&slide.content?slide.content:generateSlide(slide),
+        async (content,slide)=>{
             slide.content=content;
             previous.push({title:slide.title,content:JSON.stringify(content).slice(0,350)});
+            await options.onSlideCheckpoint?.(generatedContent);
         });
     canonicalTitles(generatedContent);
     const repairApprovedSlide=async(slide,instructions)=>{

@@ -56,7 +56,11 @@ export const presentationThemeService = (
 
 
     const requestedAppearance =
-        designPreferences.appearance;
+        designPreferences.appearance || (()=>{
+            const direction=[context.instructions,...(context.keyInstructions||[]),...(generatedContent.inferredContext?.keyInstructions||[])].join(' ');
+            if(/\b(?:dark (?:backgrounds?|theme|appearance|mode|visual style)|cinematic dark)\b/i.test(direction))return 'dark';
+            if(/\blight (?:backgrounds?|theme|appearance|mode|visual style)\b/i.test(direction))return 'light';
+        })();
 
 
     // =====================================================

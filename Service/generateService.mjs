@@ -11,6 +11,8 @@ import { aiService } from "./aiService.mjs";
 import { resolvePresentationVisuals } from './visual/presentationVisuals.mjs';
 import { createDiagramPlanner } from './visual/diagramPlanner.mjs';
 import { documentArtifactService } from './document/documentArtifactService.mjs';
+import {measureStage,profileGeneration,performanceReport} from './performance.mjs';
+import {presentationPrefetch} from './visual/presentationPrefetch.mjs';
 
 import {
     presentationLayoutService
@@ -33,7 +35,7 @@ import {
 // GENERATE SERVICE
 // =========================================================
 
-export const generateService = async (
+const generate = async (
     inputType,
     input,
     outputType,
@@ -41,18 +43,22 @@ export const generateService = async (
     options = {}
 ) => {
     const started=performance.now(),timings={};
-    const finish=result=>({...result,timings:{...timings,totalMs:Math.round(performance.now()-started)}});
+    const finish=result=>({...result,timings:{...timings,totalMs:Math.round(performance.now()-started)},performance:performanceReport()});
 
     // =====================================================
     // 1. GENERATE STRUCTURED CONTENT WITH AI
     // =====================================================
 
-    const aiResult = await aiService(
+    const early=outputType==='presentation'&&options.prefetchImages!==false?presentationPrefetch({inputType,input,context,options:options.visuals}):null;
+    const aiOptions={...options.ai,onSlideCheckpoint:async deck=>{await options.ai?.onSlideCheckpoint?.(deck);early?.update(deck);}};
+    let aiResult;
+    try{aiResult = options.completedContent || await measureStage('content',()=>aiService(
         inputType,
         input,
         outputType,
-        context, options.ai || {}
-    );
+        context, aiOptions
+    ));}catch(error){early?.cancel();throw error;}
+    await options.onContentReady?.(aiResult);
     timings.aiMs=Math.round(performance.now()-started);
     const artifactStarted=performance.now();
 
@@ -67,14 +73,15 @@ export const generateService = async (
         if(requested.name)normalized.brandName=requested.name;
         if(requested.industry)normalized.designBrief.industry=requested.industry;
         if(context.designPreferences?.heroComposition)normalized.designSpec.heroComposition=context.designPreferences.heroComposition;
-        const designed=planWebpageDesign(normalized,context);
+        const designed=await measureStage('website-design',()=>planWebpageDesign(normalized,context));
         designed.websiteBrief=compileWebsiteBrief(designed,input,context);
-        const resolved = await acquireWebsiteImages(webpageThemeService(designed, context), context, options.webpageAssets);
+        const resolved = await measureStage('website-images',()=>acquireWebsiteImages(webpageThemeService(designed, context), context, options.webpageAssets));
         const page = resolved.page;
-        const inspected = await inspectWebsite(webpageRenderer(page, resolved.assets),options.webpageQuality);
+        const rendered=await measureStage('website-html-css-js',()=>webpageRenderer(page,resolved.assets));
+        const inspected = await measureStage('website-validation',()=>inspectWebsite(rendered,options.webpageQuality));
         page.quality={...page.quality,validation:inspected.report};
         page.websiteSpecification=websiteSpecification(page);
-        const artifacts = await webpageArtifactService(inspected.files, options.artifacts);
+        const artifacts = await measureStage('website-packaging',()=>webpageArtifactService(inspected.files, options.artifacts));
         timings.renderMs=Math.round(performance.now()-artifactStarted);
         const needsReview=page.contentSpecification?.missingInformation.length||resolved.warnings.length||inspected.warnings.length||inspected.report.browser!=='passed';
         return finish({ ...aiResult, generatedContent: page, status: artifacts.status==='completed'&&needsReview?'completed_with_warnings':artifacts.status, artifacts,
@@ -199,8 +206,8 @@ export const generateService = async (
         const visualStarted=performance.now();
         timings.layoutMs=Math.round(visualStarted-artifactStarted);
         const visualContext={...resolvedContext,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')};
-        rendererReadyPresentation = await resolvePresentationVisuals(rendererReadyPresentation, visualContext,
-            {diagramPlanner:createDiagramPlanner(options.ai),...options.visuals});
+        rendererReadyPresentation = await measureStage('presentation-images',()=>resolvePresentationVisuals(rendererReadyPresentation, visualContext,
+            {diagramPlanner:createDiagramPlanner(options.ai),...options.visuals,prefetch:early}));
         timings.visualsMs=Math.round(performance.now()-visualStarted);
         const renderStarted=performance.now();
 
@@ -247,3 +254,4 @@ export const generateService = async (
     return finish(aiResult);
 
 };
+export const generateService=(...args)=>profileGeneration(()=>generate(...args),args[4]?.performance);

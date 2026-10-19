@@ -5,6 +5,8 @@ import {createHash} from 'node:crypto';
 import {imagePolicy,generationBudget} from './imagePolicy.mjs';
 import {imageBrief} from './imageArtDirection.mjs';
 import {PHOTO_FRAMES} from '../../renderer/presentation/photoCompositions.mjs';
+import {imageSpecificationSchema} from '../../templates/presentation/visualSchemas.mjs';
+import {validateSchema} from '../ai/responseValidation.mjs';
 
 export async function normalizePhoto(asset,brief,root,policy){
     if(!asset?.source||!asset.creator||!asset.license||(asset.attributionRequired&&!asset.attribution))throw new Error('Incomplete image usage rights or provenance');
@@ -34,20 +36,23 @@ export async function normalizePhoto(asset,brief,root,policy){
 }
 
 // One deck-scoped session: global provider concurrency, generation budget and duplicate detection.
-export function createImageAssetSession({providers={},policy=imagePolicy(),root,external=true,userAssets=[]}){
+export function createImageAssetSession({providers={},policy=imagePolicy(),root,external=true,userAssets=[],onDiagnostic}){
     const budget=generationBudget(policy),diagnostics=[],used=new Set(),usedSources=new Set();let active=0;const waiting=[];
     const deadline=Date.now()+(policy.deadlineMs||45000);
+    const record=entry=>{diagnostics.push(entry);onDiagnostic?.(entry);};
     const limited=async fn=>{if(active>=policy.concurrency)await new Promise(r=>waiting.push(r));else active++;try{return await fn();}finally{const next=waiting.shift();if(next)next();else active--;}};
-    let selected=0;
+    let selected=0,cancelled=false;const controllers=new Set();
     return {diagnostics,budget,
+        cancel(){cancelled=true;for(const controller of controllers)controller.abort();},
         async resolve(presentation,slide,theme,context,directOverride){
-            if(!policy.enabled||selected>=policy.maxImages)return null;selected++;
+            if(cancelled||!policy.enabled||selected>=policy.maxImages)return null;selected++;
             const brief=imageBrief(presentation,slide,theme,context);
+            validateSchema(brief,imageSpecificationSchema,'imageSpecification',false);
             if(directOverride){brief.description=directOverride.description;brief.altText=directOverride.description;brief.composition=directOverride.composition||brief.composition;}
             return limited(async()=>{
-                if(Date.now()>=deadline){diagnostics.push({slideNumber:slide.slideNumber,status:'skipped',reason:'Deck image deadline reached'});return null;}
+                if(cancelled||Date.now()>=deadline){record({slideNumber:slide.slideNumber,status:'skipped',reason:cancelled?'Deck image acquisition cancelled':'Deck image deadline reached'});return null;}
                 const direct=directOverride||userAssets.find(a=>a.slideNumber===slide.slideNumber);
-                const preference=brief.kind==='illustration'?['generate','search']:['search','generate'];
+                const preference=brief.sourceStrategy==='licensed-search-first'?['search','generate']:['generate','search'];
                 const methods=direct?['user',...(external?preference:[])]:external?preference:[];
                 for(const method of methods){
                     if(method!=='user'&&!providers[method])continue;
@@ -62,18 +67,19 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                             const filePath=path.join(root,meta.id+'.jpg'),buffer=await fs.readFile(filePath);
                             if(createHash('sha256').update(buffer).digest('hex')!==meta.id)throw new Error('Cache checksum failed');
                             await sharp(buffer,{limitInputPixels:32000000}).stats();
-                            if(!usedSources.has(meta.sourceChecksum)&&!used.has(meta.id)){used.add(meta.id);usedSources.add(meta.sourceChecksum);return {...meta,filePath,data:'image/jpeg;base64,'+buffer.toString('base64'),cacheHit:true};}
+                            if(!usedSources.has(meta.sourceChecksum)&&!used.has(meta.id)){used.add(meta.id);usedSources.add(meta.sourceChecksum);record({slideNumber:slide.slideNumber,method,status:'resolved',cacheHit:true,model:meta.model});return {...meta,filePath,data:'image/jpeg;base64,'+buffer.toString('base64'),cacheHit:true};}
                         }
                     }catch{}
                     for(let attempt=0;attempt<=policy.retries;attempt++){
-                        if(Date.now()>=deadline)break;
+                        if(cancelled||Date.now()>=deadline)break;
                         if(method==='generate'&&!budget.reserve())break;
-                        const controller=new AbortController();let timer,reservation;
+                        const controller=new AbortController(),started=Date.now();let timer,reservation;
+                        controllers.add(controller);
                         try{
                             const candidate=method==='user'?direct:await Promise.race([
                                 providers[method]({...brief,attempt,excludeAssetIds:[...used],signal:controller.signal,resolution:policy.resolution}),
                                 new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('Image provider timed out'));},Math.min(policy.timeoutMs,Math.max(1,deadline-Date.now())));})]);
-                            if(!candidate){diagnostics.push({slideNumber:slide.slideNumber,method,status:'empty',attempt:attempt+1});break;}
+                            if(!candidate){record({slideNumber:slide.slideNumber,method,status:'empty',attempt:attempt+1});break;}
                             const sourceKey=Buffer.isBuffer(candidate.buffer)?createHash('sha256').update(candidate.buffer).digest('hex'):'';
                             if(usedSources.has(sourceKey))throw new Error('Duplicate image in presentation');
                             usedSources.add(sourceKey);reservation=sourceKey;
@@ -81,9 +87,9 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                             if(used.has(asset.id))throw new Error('Duplicate image in presentation');
                             used.add(asset.id);usedSources.add(asset.sourceChecksum);
                             if(method!=='user'){const {data,filePath,...meta}=asset;await fs.writeFile(cachePath,JSON.stringify({...meta,cachedAt:Date.now()}));}
-                            diagnostics.push({slideNumber:slide.slideNumber,method,status:'resolved',attempt:attempt+1});return asset;
-                        }catch(error){if(reservation)usedSources.delete(reservation);diagnostics.push({slideNumber:slide.slideNumber,method,status:'failed',attempt:attempt+1,reason:error.message.replace(/https?:\/\/\S+/g,'[provider URL]').slice(0,180)});}
-                        finally{clearTimeout(timer);controller.abort();}
+                            record({slideNumber:slide.slideNumber,method,status:'resolved',attempt:attempt+1,model:asset.model,elapsedMs:Date.now()-started});return asset;
+                        }catch(error){if(reservation)usedSources.delete(reservation);record({slideNumber:slide.slideNumber,method,status:'failed',attempt:attempt+1,reason:error.message.replace(/https?:\/\/\S+/g,'[provider URL]').slice(0,180),elapsedMs:Date.now()-started});}
+                        finally{clearTimeout(timer);controller.abort();controllers.delete(controller);}
                     }
                 }
                 return null;

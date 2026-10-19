@@ -8,6 +8,7 @@ import {userWebsiteBrief} from './websiteBrief.mjs';
 import {acquireProviderImage} from './providerCache.mjs';
 import {imagePolicy,planWebsiteImages} from './imageStrategy.mjs';
 import {reviewImageCandidate} from './imageReview.mjs';
+import {generationConcurrency,generateIndependent} from '../ai/concurrency.mjs';
 
 const bundledCatalog=fileURLToPath(new URL('../../assets/webpage/curated/catalog.json',import.meta.url));
 const safeCreditUrl=value=>{try{const url=new URL(value);url.search='';url.hash='';return url.protocol==='https:'&&!url.username&&!url.password?url.href:'';}catch{return '';}};
@@ -20,6 +21,9 @@ export async function acquireWebsiteImages(page,context={},options={}){
         if(selected.length>=policy.maxAssets||selected.some(asset=>asset.role==='hero'&&record.role==='hero'))return false;
         if(!record.alt?.trim()||!record.license?.trim()||!record.creator?.trim())throw new Error('Missing image provenance');
         const optimized=await optimizeWebsiteImage(buffer,options.optimization);
+        // Optimization yields to other targets. Recheck the shared budget here
+        // before publishing; concurrent acquisitions may have completed first.
+        if(selected.length>=policy.maxAssets||selected.some(asset=>asset.role==='hero'&&record.role==='hero'))return false;
         if(selected.some(asset=>asset.assetId===optimized.id)&&record.allowRepeat!==true){warnings.push({code:'WEBPAGE_DUPLICATE_IMAGE_REJECTED',message:'A repeated image was excluded from another placement.'});return false;}
         const dimensions=optimized.variants.at(-1);
         const review=record.source==='User supplied'||record.source==='Authorized brand catalog'?{accepted:true,method:'caller-authorized',limits:'Caller ownership/representation assertions require review.'}:reviewImageCandidate(record.source==='Google Gemini'?{...record,subject:record.query}:record,record,dimensions);
@@ -54,9 +58,10 @@ export async function acquireWebsiteImages(page,context={},options={}){
     const matches=(asset,target)=>asset.role===target.role&&(target.role==='hero'||(asset.sectionId?asset.sectionId===target.sectionId:asset.sectionType===target.sectionType))&&(target.role!=='item'||asset.itemTitle===target.itemTitle);
     if(options.external!==false){
         if(!providers.some(provider=>provider.id==='gemini-image'))warnings.push({code:'WEBPAGE_IMAGE_GENERATION_NOT_CONFIGURED',message:'AI imagery is unavailable: configure WEBPAGE_ALLOW_IMAGE_GENERATION=true, WEBPAGE_IMAGE_MODEL and GEMINI_API_KEY. Authorized stock/local assets may still be used.'});
-        for(const target of requests){
-            if(selected.some(asset=>matches(asset,target)))continue;
-            if(selected.length>=policy.maxAssets||Date.now()-started>=policy.totalMs)break;
+        const targets=requests.slice(0,Math.max(0,policy.maxAssets-selected.length));
+        await generateIndependent(targets,generationConcurrency(options.concurrency??process.env.WEBPAGE_IMAGE_CONCURRENCY,2),async target=>{
+            if(selected.some(asset=>matches(asset,target)))return;
+            if(selected.length>=policy.maxAssets||Date.now()-started>=policy.totalMs)return;
             for(const provider of providers){
                 let resolved=false;
                 for(let attempt=0;attempt<=policy.retries;attempt++){
@@ -74,7 +79,7 @@ export async function acquireWebsiteImages(page,context={},options={}){
                 }
                 if(resolved)break;
             }
-        }
+        },()=>{});
     }
     // 5. Reviewed local fallback assets. No network access or credentials required.
     if(options.curated!==false&&selected.length<policy.maxAssets){

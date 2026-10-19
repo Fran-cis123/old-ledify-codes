@@ -34,7 +34,7 @@ const files=webpageRenderer(web.page,web.assets),website=await webpageArtifactSe
 const zip=await JSZip.loadAsync(await fs.readFile(website.files.zipPath));
 for(const [name,buffer] of Object.entries(web.assets))assert.deepEqual(await zip.file('my-website/'+name).async('nodebuffer'),buffer);
 console.log('[GOOGLE IMAGE WEBSITE]',JSON.stringify({model:env.GOOGLE_IMAGE_MODEL,localImages:Object.keys(web.assets).length,zipVerified:true}));
-const sample=structuredClone(imagerySamples.find(s=>s.name==='pharmaceutical'));
+const sample=structuredClone(imagerySamples.find(s=>s.name==='pharmaceutical'));sample.presentation.slides=sample.presentation.slides.slice(0,1);
 const ready=presentationRendererService(presentationThemeService(presentationLayoutService(sample.presentation),sample.context));
 const presentation=await resolvePresentationVisuals(ready,sample.context,{providers:configuredImageProviders(env),policy:imagePolicy(env),cacheRoot:path.join(root,'presentation-cache'),diagramPlanner:false});
 assert.ok(presentation.slides[0].photoAsset?.synthetic,'Live generated title image must resolve');

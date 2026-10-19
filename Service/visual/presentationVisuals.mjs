@@ -9,7 +9,7 @@ import { configuredImageProviders } from './imageProviders.mjs';
 import { validateRenderContent } from '../../renderer/presentation/professionalLayouts.mjs';
 import {createImageAssetSession} from './presentationImageAssets.mjs';
 import {imagePolicy} from './imagePolicy.mjs';
-import {planImageCoverage,imageCoverage} from './imageArtDirection.mjs';
+import {planImageCoverage,imageCoverage,photoSignature} from './imageArtDirection.mjs';
 
 export function imageDimensions(buffer) {
     if (!Buffer.isBuffer(buffer) || buffer.length > 12 * 1024 * 1024) throw new Error('Image exceeds the byte limit');
@@ -100,14 +100,21 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
     const theme=deriveVisualTheme(presentation,context),root=path.resolve(options.cacheRoot || 'generated/visual-assets');
     const providers=options.providers || configuredImageProviders(),warnings=[],slides=[];
     const policy={...imagePolicy(),...options.policy,...(options.providerTimeoutMs?{timeoutMs:options.providerTimeoutMs}:{})};
-    const session=createImageAssetSession({providers,policy,root,external:options.external!==false,userAssets:options.userAssets||[]});
-    const requested=presentation.slides.filter(s=>['photo','illustration'].includes(s.visualRequirement?.kind)).sort((a,b)=>Number(a.visualRequirement.plannedBy==='coverage-default')-Number(b.visualRequirement.plannedBy==='coverage-default'));
+    const session=options.prefetch?.session||createImageAssetSession({providers,policy,root,external:options.external!==false,userAssets:options.userAssets||[],onDiagnostic:options.onImageDiagnostic||(({reason,...safe})=>console.info('[IMAGE]',JSON.stringify(safe)))});
+    if(options.allowIncompleteImages===true)presentation.imageCoveragePlan.required=false;
+    const requested=presentation.slides.filter(s=>s.imageRequirement?.required);
     const assets=await Promise.all(requested.map(async s=>{
+        const early=options.prefetch?.entries.get(s.slideNumber);
+        if(early?.signature===photoSignature(s))return early.promise;
         const direct=(options.userAssets||[]).filter(a=>a.slideNumber===s.slideNumber);
         if(direct.length===2)return Promise.all(direct.map(a=>session.resolve(presentation,s,theme,context,{...a,composition:'photo-grid'})));
         return session.resolve(presentation,s,theme,context);
     }));
     const photos=new Map(requested.map((s,i)=>[s.slideNumber,assets[i]]));
+    const missing=requested.filter(s=>!([photos.get(s.slideNumber)].flat().some(Boolean))).map(s=>s.slideNumber);
+    if(presentation.imageCoveragePlan.required&&missing.length)throw Object.assign(new Error('Required presentation pictures could not be resolved. Configure PRESENTATION_ALLOW_IMAGE_GENERATION=true, an accessible GOOGLE_IMAGE_MODEL, sufficient PRESENTATION_MAX_GENERATED_IMAGES/PRESENTATION_MAX_IMAGES and estimated cost budget, or an authorized licensed-image provider. Check provider quota and network access; explicitly request text-only to omit pictures.'),{
+        code:'PRESENTATION_IMAGES_UNAVAILABLE',stage:'presentation-images',missingSlides:missing,imageDiagnostics:session.diagnostics,imageBudget:session.budget.report()
+    });
     // Plain typographic compositions are intentional. Never manufacture a decorative
     // scientific-looking asset as a substitute for the requested subject.
     if(presentation.slides.some(s=>s.visualRequirement?.role==='background'&&!photos.get(s.slideNumber))) warnings.push({code:'BACKGROUND_LOCAL_FALLBACK',stage:'visual-resolution',message:'The requested background was unavailable; a plain theme background preserves readable content.'});
@@ -197,6 +204,7 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
     }
     const result={...presentation,slides,visualTheme:{family:theme.family,style:theme.style},warnings:[...(presentation.warnings||[]),...warnings]};
     result.visualQuality=imageCoverage(result,session.diagnostics,session.budget.report());
+    if(result.imageCoveragePlan.required&&!result.visualQuality.meetsTarget)throw Object.assign(new Error('Required pictures did not fit alongside the approved slide content. No image-free presentation was published. Shorten the content or retry generation so it can be replanned.'),{code:'PRESENTATION_IMAGE_LAYOUT_FAILED',stage:'visual-layout-validation',missingSlides:result.visualQuality.missingAssets});
     if(!result.visualQuality.meetsTarget)result.warnings.push({code:'IMAGE_COVERAGE_BELOW_TARGET',stage:'visual-resolution',message:`Resolved meaningful photos/illustrations on ${result.visualQuality.actual} slides; target ${result.visualQuality.target}. Charts and diagrams are reported separately.`});
     return result;
 }

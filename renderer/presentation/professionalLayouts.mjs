@@ -6,6 +6,7 @@ import { renderNativeDiagram } from './visuals/nativeDiagram.mjs';
 import { validateDiagram } from './visuals/svgGraphics.mjs';
 import { geometryRecorder } from './geometry.mjs';
 import {renderPhotoComposition} from './photoCompositions.mjs';
+import {photoCompositionFor} from '../../Service/visual/imageArtDirection.mjs';
 
 const W = 13.333333, H = 7.5, M = .72, CW = W - M * 2;
 const luminance = hex => {
@@ -341,4 +342,12 @@ export function validateRenderContent(slideData) {
     const mock = { addText() {}, addShape() {}, addChart() {}, addImage() {} };
     renderProfessionalSlide({ slide: mock, slideData });
     return true;
+}
+
+// Pre-image stages must validate the same composition that will be rendered.
+// This marker is used only by the no-output dry renderer, never saved as media.
+export function validatePlannedRenderContent(slideData){
+    return validateRenderContent(slideData.imageLayoutPlanned&&!slideData.photoAsset
+        ?{...slideData,photoAsset:{data:'dry-layout-only'},photoComposition:photoCompositionFor(slideData)}
+        :slideData);
 }

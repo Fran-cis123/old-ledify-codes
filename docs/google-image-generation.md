@@ -4,26 +4,32 @@ Verified on 2026-10-19 using the existing Gemini API key. All 63 returned model 
 
 `Service/visual/googleImageService.mjs` uses `models.generateContent` with IMAGE/TEXT modalities. It does not use Imagen or change the text models. Both website and presentation image adapters call it. Each pipeline still owns its count limits and retries; the SDK makes one attempt per invocation. Shared concurrency, timeouts, signature/decoder validation, size limits and a seven-day checksum-verified file cache apply. Failed or blocked responses cannot become embedded images. Website responsive WebP variants are bundled in ZIP files; presentation JPEGs are embedded in PPTX files and checked after PDF/PNG rendering. Synthetic provenance is retained.
 
-The following non-secret settings enable a conservative initial limit of **one generated image per output**. Existing `GEMINI_API_KEY` remains unchanged. Configure these in Render as well to enable the deployed service; local `.env` is not deployed.
+Websites retain their initial one-generated-image limit. Standard presentations now require a relevant picture on every slide, including the cover and slides with charts/diagrams. Explicit text-only requests and explicit per-slide exclusions are respected. Missing required images fail with `PRESENTATION_IMAGES_UNAVAILABLE` (HTTP 503), not an image-free success. The PPTX package is checked for embedded, decodable picture relationships; PDF/PNG verification checks visible pixels against the embedded sources.
+
+Use these non-secret settings in Render as well as locally. Existing `GEMINI_API_KEY` remains unchanged; local `.env` is not deployed. The image-attempt ceiling permits one bounded retry while the successful-image limit stays at twelve.
 
 ```ini
 GOOGLE_IMAGE_MODEL=gemini-3.1-flash-image
-GOOGLE_IMAGE_CONCURRENCY=1
+GOOGLE_IMAGE_CONCURRENCY=2
 WEBPAGE_ALLOW_IMAGE_GENERATION=true
 WEBPAGE_IMAGE_MAX_GENERATED=1
 WEBPAGE_IMAGE_RETRIES=0
 WEBPAGE_IMAGE_TIMEOUT_MS=60000
 PRESENTATION_ALLOW_IMAGE_GENERATION=true
-PRESENTATION_MAX_GENERATED_IMAGES=1
-PRESENTATION_IMAGE_RETRIES=0
+PRESENTATION_MAX_GENERATED_IMAGES=24
+PRESENTATION_MAX_IMAGES=12
+PRESENTATION_IMAGE_CONCURRENCY=2
+PRESENTATION_IMAGE_RETRIES=1
 PRESENTATION_IMAGE_RESOLUTION=1K
 PRESENTATION_IMAGE_TIMEOUT_MS=60000
-PRESENTATION_IMAGE_DEADLINE_MS=65000
+PRESENTATION_IMAGE_DEADLINE_MS=180000
 PRESENTATION_IMAGE_ESTIMATED_UNIT_COST=1
-PRESENTATION_IMAGE_MAX_ESTIMATED_COST=1
+PRESENTATION_IMAGE_MAX_ESTIMATED_COST=24
 ```
 
-The cost settings are deliberately conservative **server reservation values**, not verified Google prices or a billing guarantee. The actual charge depends on the provider/model/account. Count limits include failed calls and retries. Raise limits only with a matching estimated budget. Existing licensed-image/user-asset priority remains; generation can be skipped where those assets already resolve a request. `WEBPAGE_IMAGE_MODEL` and `PRESENTATION_IMAGE_MODEL`, if set, override the shared model for backwards compatibility. Use a model verified for the same account. Gemini 2.5 Flash Image omits the unsupported image-size option.
+The cost settings are deliberately conservative **server reservation values**, not a billing guarantee. Google's [official standard pricing](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-image) checked on 2026-10-19 lists approximately $0.067 per 1K output image, plus input/text charges. Ten newly generated 1K images therefore imply about $0.67 in image-output charges before input tokens, text generation, retries or account-specific adjustments. Actual charges must be confirmed in provider billing. Counts include failures and retries; cached photos do not make another paid image request. Two requests run concurrently within a presentation, subject to the shared service cap. No third-party paid provider or duplicate API key was added.
+
+Supplied assets take priority. The planner can request licensed-search-first for authentic evidence, or generation-first for conceptual imagery. A source failing within its bounded budget can fall back to another authorized source, but missing coverage cannot silently become a completed deck. `WEBPAGE_IMAGE_MODEL` and `PRESENTATION_IMAGE_MODEL`, if set, override the shared model for backwards compatibility. Production uses the verified 3.1 model. Generated conceptual images remain labeled and require human review for fine scientific or historic accuracy; pixel checks establish visibility, not factual certification.
 
 Verification commands:
 
@@ -33,4 +39,4 @@ node tests/googleImagePipelineLive.mjs
 npm test
 ```
 
-The first two commands make paid API calls. The pipeline check uses existing validated text fixtures to isolate the real image providers, optimizers, renderers and packaging. It asserts local website images survive ZIP extraction and that PPTX, PDF and every slide PNG complete. It does not re-test live text generation. No endpoints or response contracts change. Existing output warnings remain possible for factual review, unavailable imagery, timeouts or exhausted budgets. Cache storage on Render is ephemeral unless backed by persistent storage.
+The first two commands make paid API calls. The earlier pipeline check uses validated text fixtures; `node tests/mandatoryPresentationImagesLive.mjs space` runs actual text and image generation for the ten-slide regression topic. Its `business` and `medical` scenarios verify unrelated subjects. The failed `presentation (4).pptx` is preserved as `tests/fixtures/zero-image-space.pptx` and fails the mandatory package gate. No endpoints change. Image-related failures now include clear error codes and missing slide numbers. Cache storage on Render is ephemeral unless backed by persistent storage.

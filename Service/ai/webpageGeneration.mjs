@@ -24,12 +24,13 @@ export async function generateWebpageContent({ client, inputType, input, context
     const requestId = randomUUID();
     const common = { client, requestId, outputType: 'webpage', strict: true, logger: options.logger, sleep: options.sleep };
     const source = `${input}\n${JSON.stringify(context)}`;
-    const originalPlan = await generateJsonWithRetry({ ...common, stage: 'webpage-planning', schema: webpagePlanSchema,
+    const originalPlan = options.initialPlan || await generateJsonWithRetry({ ...common, stage: 'webpage-planning', schema: webpagePlanSchema,
         validate: value => validateWebpagePlan(value, source),
         request: { model: process.env.GEMINI_WEBPAGE_PLAN_MODEL || 'gemini-3.7-flash',
             contents: `${rules}\nPlan category, visual direction, ordered sections and navigation labels before drafting. brandName is the exact supplied short name without a tagline or SEO suffix; title may be a longer browser title. Use a concise descriptive topic label if no brand is supplied. Choose distinct directions: portfolio=editorial, startup/product=product, education=academy, restaurant/event=table, professional business/service=classic; adapt to explicit branding. Select coherent #RRGGBB colors or leave them empty for the selected design system. Navigation labels should be short and meaningful, or empty for sections that do not belong in navigation.\nInput type: ${inputType}\nContext: ${JSON.stringify(context)}\nSource: ${JSON.stringify(input)}`,
             config: { responseMimeType: 'application/json', responseJsonSchema: webpagePlanningProviderSchema(), maxOutputTokens: 6144, temperature: .3, thinkingConfig: { thinkingBudget: 1024 } } }
     });
+    validateWebpagePlan(originalPlan,source);
     const {plan,specification}=specifyWebsiteContent(originalPlan,input,context);
     await options.onPlan?.(plan);
     const schema = webpageContentSchema(plan);

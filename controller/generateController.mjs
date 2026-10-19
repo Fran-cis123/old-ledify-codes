@@ -8,9 +8,11 @@ import { validateUploadedFile } from '../Service/input/fileValidation.mjs';
 import { combineGenerationInput } from '../Service/input/combinedInput.mjs';
 import { addPresentationPublicUrls } from '../Service/presentationPublicUrls.mjs';
 import {prepareInputImageAssets,validateVisualAssetInputs} from '../Service/visual/inputImageAssets.mjs';
+import {profileGeneration,measureStage} from '../Service/performance.mjs';
+import {generationJobs} from '../Service/generationJobs.mjs';
 
-export function createGenerationHandlers({ model = generateModel, generator = generateService, extractFile = fileService, extractUrl = urlService } = {}) {
-    const handle = inputType => async (req, res) => {
+export function createGenerationHandlers({ model = generateModel, generator = generateService, extractFile = fileService, extractUrl = urlService,jobRoot,jobOptions={} } = {}) {
+    const handle = inputType => (req, res) => profileGeneration(async() => {
         let record;
         try {
             if(!req.body||typeof req.body!=='object'||Array.isArray(req.body))throw invalid('Provide a JSON object for text or URL requests, or a multipart form for the file endpoint.');
@@ -25,21 +27,26 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
             if (outputType === 'presentation') resolveSlideCount('', context);
             let input, label,kind=inputType,sources;
             if(inputType==='combined') {
-                const combined=await combineGenerationInput({body:req.body,file:req.file,context,extractFile,extractUrl});
+                const combined=await measureStage('input-extraction',()=>combineGenerationInput({body:req.body,file:req.file,context,extractFile,extractUrl}));
                 ({input,label,sources}=combined);kind=combined.inputType;context=combined.context;
             } else if (inputType === 'file') {
                 if (!req.file) throw invalid('File is required');
                 await validateUploadedFile(req.file);
-                input = await extractFile(req.file); label = req.file.originalname;
+                input = await measureStage('input-extraction',()=>extractFile(req.file)); label = req.file.originalname;
             } else {
                 const field = inputType === 'prompt' ? 'textPrompt' : 'urlPrompt';
                 if (typeof req.body[field] !== 'string' || !req.body[field].trim()) throw invalid(field + ' and outputType are required');
                 label = req.body[field];
-                input = inputType === 'url' ? await extractUrl(label) : label;
+                input = inputType === 'url' ? await measureStage('input-extraction',()=>extractUrl(label)) : label;
             }
             const visualInput=outputType==='presentation'?await prepareInputImageAssets(context,req.file):null;
             if(visualInput)context=visualInput.context;
-            record = await model.create({ inputType:kind, input: label, outputType, status: 'processing' });
+            record = await measureStage('database-create',()=>model.create({ inputType:kind, input: label, outputType, status: 'processing' }));
+            if(req.get?.('Prefer')?.split(',').some(value=>value.trim()==='respond-async')){
+                const job=await generationJobs({...jobOptions,generator,model,root:jobRoot}).enqueue({kind,input,outputType,context,recordId:String(record._id),options:visualInput?.assets.length?{visuals:{userAssets:visualInput.assets}}:{}});
+                res.set?.('Preference-Applied','respond-async');res.set?.('Location',job.statusUrl);
+                return res.status(202).json({message:'Generation queued',data:job});
+            }
             let result = await generator(kind, input, outputType, context,visualInput?.assets.length?{visuals:{userAssets:visualInput.assets}}:{});
             if(sources)result={...result,sources};
             result = publicGenerationResult(result);
@@ -48,7 +55,7 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
             if(result.generatedContent?.inferredContext) result.generatedContent.inferredContext=compactOptionalContext(result.generatedContent.inferredContext);
             record.status = 'completed'; record.generatedContent = result.generatedContent;
             if (result.artifacts || result.preview) record.artifacts = result.artifacts || result.preview;
-            await record.save();
+            await measureStage('database-save',()=>record.save());
             const legacy=req.get?.('X-Ledify-Response-Version')==='1';
             const request=legacy?(record.toObject?.() || {...record}):Object.fromEntries(['_id','inputType','outputType','status','createdAt','updatedAt'].filter(k=>record[k]!=null).map(k=>[k,record[k]]));
             const status=result.status || 'completed';
@@ -63,8 +70,10 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
         } catch (error) {
             if (record) { record.status = 'failed'; try { await record.save(); } catch {} }
             const code = error.code || 'GENERATION_FAILED';
+            if(['GENERATION_QUEUE_FULL','AI_PROVIDER_BUSY'].includes(code)){res.set?.('Retry-After','15');return res.status(503).json({message:'Generation capacity is occupied. Retry shortly.',errorCode:code});}
             if(error.validationErrors?.length) console.error('[GENERATION_VALIDATION]',JSON.stringify({requestId:error.requestId,stage:error.stage,validationErrors:error.validationErrors}));
             console.error('[GENERATION]',JSON.stringify({errorCode:code,stage:error.stage||'generation',requestId:error.requestId,slideNumber:error.slideNumber,sectionId:error.sectionId,validationRule:error.validationRule,field:error.field,maxCharacters:error.maxCharacters,lastErrorCode:error.lastErrorCode,providerStatus:error.providerStatus,providerReason:error.providerReason,model:error.model}));
+            if(['PRESENTATION_IMAGES_UNAVAILABLE','PRESENTATION_IMAGE_LAYOUT_FAILED','PPTX_REQUIRED_IMAGE_MISSING'].includes(code))return res.status(code==='PRESENTATION_IMAGES_UNAVAILABLE'?503:422).json({message:'Presentation image requirements could not be completed',error:error.message,errorCode:code,stage:error.stage,missingSlides:error.missingSlides});
             if(code==='AI_PROVIDER_ERROR'||code==='AI_PROVIDER_TRANSIENT'||code==='AI_RETRY_EXHAUSTED'&&error.lastErrorCode==='AI_PROVIDER_TRANSIENT'){
                 const reasons={
                     INVALID_API_KEY:'Gemini rejected the server API key. Verify GEMINI_API_KEY in the deployed service environment.',
@@ -92,7 +101,7 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
             return res.status(clientError ? 400 : 500).json({ message: clientError ? error.message : 'Generation failed; see errorCode and stage', error: clientError ? error.message : 'Unable to complete generation',
                 errorCode: code, stage: error.stage||'generation', slideNumber: error.slideNumber,sectionId:error.sectionId,validationRule:error.validationRule, field: error.field, maxCharacters:error.maxCharacters, requestId: error.requestId, lastErrorCode: error.lastErrorCode });
         }
-    };
+    });
     return { userText: handle('prompt'), userUrl: handle('url'), userFile: handle('file'),userCombined:handle('combined') };
 }
 function invalid(message) { return Object.assign(new Error(message), { code: 'INVALID_REQUEST' }); }
