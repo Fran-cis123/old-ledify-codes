@@ -3,16 +3,55 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {requiresAuthenticPhotography,planImageCoverage} from '../../Service/visual/imageArtDirection.mjs';
+import {requiresAuthenticPhotography,planImageCoverage,imageBrief} from '../../Service/visual/imageArtDirection.mjs';
 import {createImageAssetSession} from '../../Service/visual/presentationImageAssets.mjs';
 import {imagePolicy} from '../../Service/visual/imagePolicy.mjs';
-import {commonsSearch,commonsCandidates,stockSearchQueries} from '../../Service/visual/imageProviders.mjs';
+import {commonsSearch,commonsCandidates,stockSearchQueries,candidateSuitability} from '../../Service/visual/imageProviders.mjs';
 import {createGenerationHandlers} from '../../controller/generateController.mjs';
 import {createCommonsMetadataClient} from '../../Service/visual/commonsMetadata.mjs';
 
 const instructions="Every slide must contain at least one real, high-quality photographic image. Use authentic destination photography; do not present AI-generated scenes as real photographs of specific locations.";
 const deck={title:'Travel destinations',slides:[{slideNumber:1,slideType:'title',title:'Swiss Alps',visualRequirement:{kind:'photo',searchQuery:'Swiss Alps',sourceStrategy:'generate-first'}}]};
 const theme={family:'editorial',style:'cinematic',palette:{background:'FFFFFF'}};
+
+test('real-image decks use photos for finance and roadmap slides while explicit fictional concepts retain their exception',async()=>{
+    const {textPrompt}=JSON.parse(await fs.readFile(new URL('../fixtures/confortPresentationRequest.json',import.meta.url),'utf8'));
+    const presentation={title:'CONFORT AUTOMOBILES',slides:[
+        {slideNumber:1,title:'CONFORT AUTOMOBILES',slideType:'title',visualRequirement:{kind:'photo',searchQuery:'luxury sedan coastal road',description:'Luxury sedan'}},
+        {slideNumber:5,title:'Product portfolio',objective:'Show three fictional vehicle concepts',visualRequirement:{kind:'photo',searchQuery:'luxury vehicle concept',description:'Three labeled concept vehicles'}},
+        {slideNumber:10,title:'Financial outlook',content:{chart:{}},visualRequirement:{kind:'none'}},
+        {slideNumber:11,title:'Strategic roadmap',visualRequirement:{kind:'none'}}
+    ]};
+    const planned=planImageCoverage(presentation,{instructions:textPrompt});
+    const portfolio=imageBrief(planned,planned.slides[1],theme,{instructions:textPrompt});
+    assert.equal(portfolio.conceptImage,true);assert.equal(portfolio.authenticPhotoOnly,false);assert.equal(portfolio.sourceStrategy,'generate-first');
+    assert.ok(portfolio.syntheticDisclosure.includes('not a manufactured product'));
+    for(const slide of [planned.slides[0],...planned.slides.slice(2)]){
+        const brief=imageBrief(planned,slide,theme,{instructions:textPrompt});
+        assert.equal(brief.authenticPhotoOnly,true);assert.equal(brief.sourceStrategy,'licensed-search-first');assert.ok(!brief.searchQuery.includes('CONFORT'));
+    }
+});
+
+test('failed image attempts rejoin behind the remaining slides instead of holding a slot through retries',async t=>{
+    const root=await fs.mkdtemp(path.join(os.tmpdir(),'ledify-fair-images-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+    let started,release;const entered=new Promise(r=>{started=r;}),gate=new Promise(r=>{release=r;}),calls=[];
+    const session=createImageAssetSession({root,policy:{...imagePolicy({}),concurrency:1,retries:1},providers:{search:async brief=>{
+        calls.push([brief.slideNumber,brief.attempt]);
+        if(brief.slideNumber===1&&brief.attempt===0){started();await gate;throw new Error('Temporary image failure');}
+        return null;
+    }}});
+    const presentation={title:'Travel',slides:Array.from({length:12},(_,i)=>({...deck.slides[0],slideNumber:i+1}))};
+    const first=session.resolve(presentation,presentation.slides[0],theme,{instructions});await entered;
+    const rest=presentation.slides.slice(1).map(s=>session.resolve(presentation,s,theme,{instructions}));
+    await new Promise(r=>setTimeout(r,100));release();await Promise.all([first,...rest]);
+    assert.equal(calls.length,13);assert.deepEqual(calls.at(-1),[1,1]);assert.equal(new Set(calls.slice(0,12).map(c=>c[0])).size,12);
+});
+
+test('paid generation is not reserved when too little deadline remains for a meaningful request',async t=>{
+    const root=await fs.mkdtemp(path.join(os.tmpdir(),'ledify-late-image-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));let calls=0;
+    const session=createImageAssetSession({root,policy:{...imagePolicy({}),allowGeneration:true,estimatedUnitCost:.1,maxEstimatedCost:2,deadlineMs:100,timeoutMs:1000},providers:{generate:async()=>{calls++;return null;}}});
+    await session.resolve(deck,deck.slides[0],theme,{});assert.equal(calls,0);assert.equal(session.budget.report().attempts,0);
+});
 test('the travel prompt forces authentic stock photography even when the outline requests generation',()=>{
     assert.equal(requiresAuthenticPhotography({instructions}),true);
     assert.equal(requiresAuthenticPhotography({instructions:'Use AI-generated editorial illustrations.'}),false);
@@ -57,6 +96,25 @@ test('Commons recovers an overdescribed search and tries the next licensed candi
         queries.push(q);return q===query?[]:[1,2].map(id=>({mediaKind:'photograph',originalUrl:`https://commons.wikimedia.org/wiki/File:Swiss_Alps_${id}.jpg`,description:'Swiss Alps landscape',downloadUrl:`https://example.org/${id}.jpg`}));
     },download:async url=>{downloads.push(url);if(downloads.length===1)throw new Error('Image unavailable');return {buffer:Buffer.from('photo fixture')};}});
     assert.deepEqual(queries,['Swiss Alps']);assert.equal(downloads.length,2);assert.equal(result.buffer.toString(),'photo fixture');
+});
+
+test('stock search preserves the automotive subject and does not repeatedly download a failed URL across fallback queries',async()=>{
+    assert.ok(stockSearchQueries('luxury executive sedan modern architecture dusk lighting').includes('luxury sedan'));
+    let downloads=0;
+    await assert.rejects(commonsSearch({searchQuery:'luxury executive sedan modern architecture dusk lighting'}, {find:async()=>[{mediaKind:'photograph',originalUrl:'https://commons.wikimedia.org/wiki/File:Luxury_executive_sedan_modern_architecture_dusk_lighting.jpg',description:'Luxury executive sedan modern architecture dusk lighting',downloadUrl:'https://example.org/blocked.jpg'}],download:async()=>{downloads++;throw Object.assign(new Error('Source URL returned HTTP 429'),{status:429});}}),/429/);
+    assert.equal(downloads,1);
+});
+
+test('relevance includes verified Commons categories when a vehicle filename contains only its model name',()=>{
+    const photo={originalUrl:'https://commons.wikimedia.org/wiki/File:Genesis_G70.jpg',description:'Genesis G70 at Westfarms Mall',categories:'Luxury sedans Executive cars',mediaKind:'photograph'};
+    assert.ok(candidateSuitability('luxury sedan',photo)>0);
+    assert.equal(candidateSuitability('Maldives lagoon',photo),-1);
+    assert.equal(candidateSuitability('luxury sedan',{...photo,mediaKind:'synthetic'}),-1);
+    assert.equal(candidateSuitability('modern electric vehicle charging station',{...photo,description:'Modern electric steam iron',categories:'Modern electrical appliances',originalUrl:'https://commons.wikimedia.org/wiki/File:Electric_steam_iron.jpg'},{partial:true}),-1);
+    assert.equal(candidateSuitability('digital car configurator',{...photo,description:'Car antenna on compacted Mazda',categories:'Compacted vehicles',originalUrl:'https://commons.wikimedia.org/wiki/File:Car_antenna_compacted.jpg'},{partial:true}),-1);
+    assert.equal(candidateSuitability('digital car showroom',{...photo,description:'San Francisco cable car',categories:'Cable cars',originalUrl:'https://commons.wikimedia.org/wiki/File:Cable_Car_10.jpg'},{partial:true}),-1);
+    assert.equal(candidateSuitability('luxury car interior',{...photo,description:'Car interior showing steering wheel with missing parts',originalUrl:'https://commons.wikimedia.org/wiki/File:Car_interior.jpg'},{partial:true}),-1);
+    assert.equal(candidateSuitability('luxury car interior',{...photo,description:'Abandoned car with a deployed airbag and worn steering wheel',originalUrl:'https://commons.wikimedia.org/wiki/File:Car_interior.jpg'},{partial:true}),-1);
 });
 
 test('destination scene directions fall back to concise location searches without adding another location',async()=>{

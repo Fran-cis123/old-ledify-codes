@@ -7,20 +7,22 @@ import {generateService} from '../Service/generateService.mjs';
 
 const name=process.argv[2]||'space',root=path.resolve('generated/mandatory-presentation-images',process.env.LEDIFY_LIVE_RUN_DIRECTORY||name);await fs.mkdir(root,{recursive:true});
 const scenario={space:JSON.parse(await fs.readFile('tests/fixtures/spacePresentationRequest.json','utf8')),business:{textPrompt:'Create a professional 3-slide presentation titled Evidence-Based Business Expansion. Slide 1: Evidence-Based Business Expansion. Slide 2: Market Evaluation. Slide 3: Expansion Decisions. Explain customer discovery, operational readiness and evidence-based pilot decisions without invented performance data or clients. Use distinct relevant conceptual photographs on all three slides, a refined corporate theme and readable layouts.'},medical:{textPrompt:'Create a professional 3-slide presentation titled Scientific Laboratory Quality. Slide 1: Scientific Laboratory Quality. Slide 2: Sample Handling. Slide 3: Reliable Laboratory Practice. Explain sample traceability, contamination control and documented review. Use distinct relevant conceptual laboratory photographs on all three slides. Do not invent test results or portray generated photographs as diagnostic evidence.'}}[name];
-const liveScenario=name==='travel'?JSON.parse(await fs.readFile('tests/fixtures/travelPresentationRequest.json','utf8')):scenario;
+const liveScenario=['travel','confort'].includes(name)?JSON.parse(await fs.readFile(`tests/fixtures/${name}PresentationRequest.json`,'utf8')):scenario;
 assert.ok(liveScenario,'Unknown live scenario');
 await fs.writeFile(path.join(root,'request.json'),JSON.stringify(liveScenario,null,2));
 const log=entry=>{appendFileSync(path.join(root,'ai.log'),JSON.stringify(entry)+'\n');console.log('[AI]',JSON.stringify(entry));};
 try{
     let initialPresentation;
-    if(process.argv.includes('--resume')){
+    if(process.argv.includes('--resume')||process.argv.includes('--artifacts-only')){
         try{initialPresentation=JSON.parse(await fs.readFile(path.join(root,'ai-content.json'),'utf8'));}
         catch{try{initialPresentation=JSON.parse(await fs.readFile(path.join(root,'ai-partial.json'),'utf8'));}catch{}}
     }
-    const result=await generateService('prompt',liveScenario.textPrompt,'presentation',{}, {ai:{initialPresentation,logger:log,onSlideCheckpoint:content=>fs.writeFile(path.join(root,'ai-partial.json'),JSON.stringify(content,null,2)),onCheckpoint:content=>fs.writeFile(path.join(root,'ai-content.json'),JSON.stringify(content,null,2))},visuals:{diagramPlanner:false,onImageDiagnostic:entry=>{appendFileSync(path.join(root,'images.log'),JSON.stringify(entry)+'\n');console.log('[IMAGE]',JSON.stringify(entry));}},preview:{outputDirectory:path.join(root,'previews')}});
+    if(process.argv.includes('--artifacts-only'))assert.equal(initialPresentation?.quality?.reviewed,true,'Artifact-only checks require a saved, reviewed presentation');
+    const completedContent=process.argv.includes('--artifacts-only')?{inputType:'prompt',input:liveScenario.textPrompt,outputType:'presentation',context:{},generatedContent:initialPresentation}:undefined;
+    const result=await generateService('prompt',liveScenario.textPrompt,'presentation',{}, {completedContent,ai:{initialPresentation,logger:log,onSlideCheckpoint:content=>fs.writeFile(path.join(root,'ai-partial.json'),JSON.stringify(content,null,2)),onCheckpoint:content=>fs.writeFile(path.join(root,'ai-content.json'),JSON.stringify(content,null,2))},visuals:{diagramPlanner:false,onImageDiagnostic:entry=>{appendFileSync(path.join(root,'images.log'),JSON.stringify(entry)+'\n');console.log('[IMAGE]',JSON.stringify(entry));}},preview:{outputDirectory:path.join(root,'previews')}});
     await fs.writeFile(path.join(root,'result.json'),JSON.stringify(result,null,2));
     assert.equal(result.preview.stages.pptx,'completed');assert.equal(result.preview.stages.pdf,'completed');assert.equal(result.preview.stages.png,'completed');
-    const count=['space','travel'].includes(name)?10:3;
+    const count=name==='confort'?12:['space','travel'].includes(name)?10:3;
     assert.equal(result.preview.slideCount,count);assert.equal(result.preview.quality.pptx.slidesWithPictures,count);assert.ok(result.preview.quality.pptx.embeddedImages>=count);assert.equal(result.preview.quality.preview.images.photographs,count);
     if(name==='travel'){
         assert.equal(result.generatedContent.visualQuality.budget.attempts,0);

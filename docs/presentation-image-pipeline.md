@@ -115,6 +115,18 @@ and authorized supplied assets only. They never call paid image generation,
 even when the outline requests a generated picture or server generation is
 enabled. Synthetic provider results and cached synthetic assets are rejected.
 
+For mixed requests explicitly permitting fictional product concept imagery,
+only slides describing those concepts may generate an image. They are labeled
+"Illustrative concept"; other slides retain authentic-photo enforcement.
+Financial/roadmap slides without their own photo brief reuse an industry photo
+subject from the deck instead of searching for a fictional company name.
+
+The shared image concurrency limit covers one attempt at a time. Failed attempts
+rejoin the queue behind waiting slides, preventing early retries from starving
+slides 10–12. Cache hits bypass network slots. The absolute server deadline and
+billing limits remain enforced; late calls are skipped before reserving paid
+generation when too little usable time remains.
+
 Commons searches remove visual-style words, try shorter subject/location
 queries and use location-constrained alternatives for scene details. Relevant
 candidates are ranked against the original brief. It tries other licensed
@@ -122,6 +134,11 @@ candidates when a download fails. Licensed image alt text describes the actual
 retrieved photograph rather than the model's imagined scene. Network,
 licensing, relevance, resolution and deck deadline limits still apply. No
 picture-free presentation is published to satisfy a mandatory-photo request.
+
+Relevance uses verified Commons categories as well as filenames/descriptions.
+Automotive requests exclude unrelated appliances and wreck/scrap imagery.
+Fallback queries do not repeatedly download the same failed URL. Cached stock
+photos are checked against the current subject rules before reuse.
 
 Metadata requests share a process-wide queue with one-second spacing, a bounded
 five-minute cache (128 queries), cancellation, and one bounded retry respecting

@@ -3,7 +3,13 @@ export function wantsTextOnly(context={}){
 }
 export function requiresAuthenticPhotography(context={}){
     const text=[context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].join(' ');
-    return /\b(?:authentic|real|actual)\b[^.!?\n]{0,60}\bphoto(?:graph(?:ic|y|s)?)?s?\b|\b(?:no|without|never|do not use|avoid)\s+AI[- ]generated\s+(?:images|scenes|photos|pictures)/i.test(text);
+    return /\b(?:authentic|real|actual)\b[^.!?\n]{0,60}\b(?:photo(?:graph(?:ic|y|s)?)?s?|images?|pictures?)\b|\b(?:no|without|never|do not use|avoid)\s+AI[- ]generated\s+(?:images|scenes|photos|pictures)/i.test(text);
+}
+export function slidePhotoPolicy(context,slide){
+    const text=[context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].join(' ');
+    const conceptImage=/\bconcept (?:imagery|images?|illustrations?|vehicles?)\b/i.test(text)&&/\bconcept\b/i.test([slide.title,slide.objective,slide.visualRequirement?.description].join(' '))&&!/\b(?:no|without|never|do not use|avoid)\s+AI[- ]generated/i.test(text);
+    const authenticPhotoOnly=requiresAuthenticPhotography(context)&&!conceptImage;
+    return {authenticPhotoOnly,conceptImage,sourceStrategy:authenticPhotoOnly?'licensed-search-first':conceptImage?'generate-first':slide.visualRequirement?.sourceStrategy||'generate-first'};
 }
 export function photoCompositionFor(slide){
     if(slide.slideType==='title')return 'hero-full-bleed';
@@ -24,11 +30,11 @@ export function imageBrief(presentation,slide,theme,context={}){
         purpose:request.role==='background'?'opening context':slide.objective||slide.title,
         theme:theme.family,palette:theme.palette,style:theme.style,
         composition,aspectRatio:composition.startsWith('hero-')?'16:9':'4:3',preferredPlacement:composition,cropStrategy:'cover-with-focal-point',
-        sourceStrategy:requiresAuthenticPhotography(context)?'licensed-search-first':request.sourceStrategy||'generate-first',authenticPhotoOnly:requiresAuthenticPhotography(context),qualityRequirements:{minWidth:800,minHeight:600,minEffectivePpi:90,maxBytes:12*1024*1024},
+        ...slidePhotoPolicy(context,slide),qualityRequirements:{minWidth:800,minHeight:600,minEffectivePpi:90,maxBytes:12*1024*1024},
         lighting:'natural, restrained contrast, consistent daylight',perspective:'editorial eye-level or subject-appropriate wide view',
         focalPoint:{x:coordinate(point.x),y:coordinate(point.y)},
         textSpace:'Text sits on a separate opaque theme panel; preserve the subject in the image area.',
-        syntheticDisclosure:'Illustrative AI-generated artwork; not a photograph of an actual person, event, product or facility.',
+        syntheticDisclosure:slidePhotoPolicy(context,slide).conceptImage?'Illustrative vehicle concept; not a manufactured product.':'Illustrative AI-generated artwork; not a photograph of an actual person, event, product or facility.',
         scientificAccuracy:'No invented diagnostic findings, anatomical structures, certifications, logos or real-world evidence.'};
 }
 export function generationPrompt(brief){
@@ -52,11 +58,14 @@ export function planImageCoverage(presentation,context={}){
     for(const s of slides){
         if(noPhotos||excluded.has(s.slideNumber)){delete s.imageRequirement;delete s.photoAsset;delete s.photoAssets;delete s.photoComposition;continue;}
         const supplied=['photo','illustration'].includes(s.visualRequirement?.kind)?s.visualRequirement:{};
+        const policy=slidePhotoPolicy(context,s);
+        const peers=slides.filter(p=>p.slideNumber!==s.slideNumber&&p.visualRequirement?.kind==='photo'&&p.visualRequirement.searchQuery);
+        const supporting=policy.authenticPhotoOnly&&peers.length?peers[(s.slideNumber-1)%peers.length].visualRequirement:null;
         // A supporting photo is independent of the slide's editable chart or
         // precise diagram. Never replace scientific evidence with AI imagery.
         s.imageRequirement={...supplied,role:s.slideType==='title'?'background':'foreground',kind:supplied.kind||'illustration',required:true,
             description:supplied.description||`Contextual editorial illustration supporting ${s.title}. ${s.objective||''} Illustrative context, not evidence of actual events or a named organization's facilities.`,
-            searchQuery:supplied.searchQuery||[presentation.title,s.title].join(' '),altText:supplied.altText||`Illustrative context for ${s.title}`,sourceStrategy:requiresAuthenticPhotography(context)?'licensed-search-first':supplied.sourceStrategy||'generate-first',authenticPhotoOnly:requiresAuthenticPhotography(context)};
+            searchQuery:supplied.searchQuery||supporting?.searchQuery||[presentation.title,s.title].join(' '),altText:supplied.altText||`Illustrative context for ${s.title}`,...policy};
     }
     if(noPhotos)for(const s of slides)if(['photo','illustration','texture'].includes(s.visualRequirement?.kind))s.visualRequirement={role:'none',kind:'none',required:false,description:'',searchQuery:'',altText:''};
     return {...presentation,slides,imageCoveragePlan:{required:!noPhotos,target,requiredSlideNumbers:noPhotos?[]:eligible.map(s=>s.slideNumber),eligibleSlides:eligible.length,totalSlides:slides.length,reason:noPhotos?'User requested no images':'A relevant embedded picture on every required slide, alongside editable charts and diagrams'}};
