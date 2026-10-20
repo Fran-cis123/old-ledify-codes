@@ -9,7 +9,7 @@ import { configuredImageProviders } from './imageProviders.mjs';
 import { validateRenderContent } from '../../renderer/presentation/professionalLayouts.mjs';
 import {createImageAssetSession} from './presentationImageAssets.mjs';
 import {imagePolicy} from './imagePolicy.mjs';
-import {planImageCoverage,imageCoverage,photoSignature} from './imageArtDirection.mjs';
+import {planImageCoverage,imageCoverage,photoSignature,requiresAuthenticPhotography} from './imageArtDirection.mjs';
 
 export function imageDimensions(buffer) {
     if (!Buffer.isBuffer(buffer) || buffer.length > 12 * 1024 * 1024) throw new Error('Image exceeds the byte limit');
@@ -112,7 +112,7 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
     }));
     const photos=new Map(requested.map((s,i)=>[s.slideNumber,assets[i]]));
     const missing=requested.filter(s=>!([photos.get(s.slideNumber)].flat().some(Boolean))).map(s=>s.slideNumber);
-    if(presentation.imageCoveragePlan.required&&missing.length)throw Object.assign(new Error('Required presentation pictures could not be resolved. Configure PRESENTATION_ALLOW_IMAGE_GENERATION=true, an accessible GOOGLE_IMAGE_MODEL, sufficient PRESENTATION_MAX_GENERATED_IMAGES/PRESENTATION_MAX_IMAGES and estimated cost budget, or an authorized licensed-image provider. Check provider quota and network access; explicitly request text-only to omit pictures.'),{
+    if(presentation.imageCoveragePlan.required&&missing.length)throw Object.assign(new Error(requiresAuthenticPhotography(context)?'Required authentic photographs could not be resolved. AI image generation is disabled for this request. Check licensed-photo provider network access and search availability, configure PEXELS_API_KEY for an additional photo source, or supply authorized destination photographs.': 'Required presentation pictures could not be resolved. Configure PRESENTATION_ALLOW_IMAGE_GENERATION=true, an accessible GOOGLE_IMAGE_MODEL, sufficient PRESENTATION_MAX_GENERATED_IMAGES/PRESENTATION_MAX_IMAGES and estimated cost budget, or an authorized licensed-image provider. Check provider quota and network access; explicitly request text-only to omit pictures.'),{
         code:'PRESENTATION_IMAGES_UNAVAILABLE',stage:'presentation-images',missingSlides:missing,imageDiagnostics:session.diagnostics,imageBudget:session.budget.report()
     });
     // Plain typographic compositions are intentional. Never manufacture a decorative

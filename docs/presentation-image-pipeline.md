@@ -108,6 +108,38 @@ Use `POST /api/generate` or `/api/generate/textPrompt`; multipart generation als
 
 Use the inventory's exact `imageName`; PDF names are `pageNumber:imageName`. No automatic assumption links a document picture to a slide or grants its reuse rights. DOCX media entries and PDF embedded images are extracted, not screenshots of arbitrary pages. Low-resolution, animated or unsupported embedded formats are omitted/rejected. Existing text extraction, text prompts, URL inputs and PDF/DOCX source validation remain intact.
 
+## Authentic photographs
+
+Requests explicitly requiring real or authentic photography use licensed search
+and authorized supplied assets only. They never call paid image generation,
+even when the outline requests a generated picture or server generation is
+enabled. Synthetic provider results and cached synthetic assets are rejected.
+
+Commons searches remove visual-style words, try shorter subject/location
+queries and use location-constrained alternatives for scene details. Relevant
+candidates are ranked against the original brief. It tries other licensed
+candidates when a download fails. Licensed image alt text describes the actual
+retrieved photograph rather than the model's imagined scene. Network,
+licensing, relevance, resolution and deck deadline limits still apply. No
+picture-free presentation is published to satisfy a mandatory-photo request.
+
+Metadata requests share a process-wide queue with one-second spacing, a bounded
+five-minute cache (128 queries), cancellation, and one bounded retry respecting
+`Retry-After`. Rate limiting stops query fan-out and immediate session retries;
+it is reported as `PROVIDER_RATE_LIMITED`. This cannot guarantee availability
+when the external provider is unavailable or its cooldown exceeds the request's
+deadline. No API key or additional package is needed for the Commons adapter.
+
+For an additional licensed source, configure `PEXELS_API_KEY` and keep
+`PRESENTATION_STOCK_PROVIDER=auto`. Wikimedia Commons remains the automatic
+fallback. This requires working outbound provider and image-host access.
+`PRESENTATION_IMAGES_UNAVAILABLE` now includes safe `imageFailures` entries
+with slide number, method, status and reason code. `PROVIDER_TIMEOUT`,
+`PROVIDER_NETWORK_ERROR`, `NO_ELIGIBLE_IMAGE`, `DECK_DEADLINE_REACHED` and
+`AUTHENTIC_PHOTO_PROVIDER_UNAVAILABLE` distinguish acquisition failures without
+exposing raw provider messages or credentials. Increasing Gemini image budget
+does not solve an authentic-photo source failure.
+
 ## Changed files
 
 - Planning/policy/assets: `Service/ai/presentationPrompts.mjs`, `Service/visual/imageArtDirection.mjs`, `imagePolicy.mjs`, `presentationImageAssets.mjs`, `imageProviders.mjs`, `inputImageAssets.mjs`, `presentationVisuals.mjs`.

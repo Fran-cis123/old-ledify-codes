@@ -29,7 +29,7 @@ export async function normalizePhoto(asset,brief,root,policy){
     return {...metadata,id,sourceChecksum:createHash('sha256').update(asset.buffer).digest('hex'),filePath,data:'image/jpeg;base64,'+buffer.toString('base64'),kind:'photo',role:'foreground',status:'resolved',
         sourceType:asset.sourceType||(asset.generationMethod==='ai-generated'?'ai-generated':'licensed-stock'),
         width:dimensions.width,height:dimensions.height,format:'jpeg',bytes:buffer.length,sourceDimensions:{width:meta.width,height:meta.height},
-        altText:brief.altText||brief.description,slideNumber:brief.slideNumber,visualPurpose:brief.purpose,imageDescription:brief.description,
+        altText:asset.generationMethod==='licensed-search'?(asset.description||brief.altText||brief.description):(brief.altText||brief.description),slideNumber:brief.slideNumber,visualPurpose:brief.purpose,imageDescription:brief.description,
         artDirection:brief,crop:{mode:'cover',focalPoint:brief.focalPoint,sourceRect:{left,top,width:cropW,height:cropH},targetAspectRatio:ratio},
         changes:'Resized, metadata stripped and JPEG compressed by Ledify; cropped to the slide frame.',
         synthetic:asset.generationMethod==='ai-generated',disclosure:asset.generationMethod==='ai-generated'?brief.syntheticDisclosure:undefined};
@@ -45,24 +45,26 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
     return {diagnostics,budget,
         cancel(){cancelled=true;for(const controller of controllers)controller.abort();},
         async resolve(presentation,slide,theme,context,directOverride){
-            if(cancelled||!policy.enabled||selected>=policy.maxImages)return null;selected++;
+            if(cancelled||!policy.enabled||selected>=policy.maxImages){record({slideNumber:slide.slideNumber,status:'skipped',reasonCode:cancelled?'CANCELLED':!policy.enabled?'IMAGES_DISABLED':'IMAGE_LIMIT_REACHED'});return null;}selected++;
             const brief=imageBrief(presentation,slide,theme,context);
             validateSchema(brief,imageSpecificationSchema,'imageSpecification',false);
             if(directOverride){brief.description=directOverride.description;brief.altText=directOverride.description;brief.composition=directOverride.composition||brief.composition;}
             return limited(async()=>{
-                if(cancelled||Date.now()>=deadline){record({slideNumber:slide.slideNumber,status:'skipped',reason:cancelled?'Deck image acquisition cancelled':'Deck image deadline reached'});return null;}
+                if(cancelled||Date.now()>=deadline){record({slideNumber:slide.slideNumber,status:'skipped',reasonCode:cancelled?'CANCELLED':'DECK_DEADLINE_REACHED',reason:cancelled?'Deck image acquisition cancelled':'Deck image deadline reached'});return null;}
                 const direct=directOverride||userAssets.find(a=>a.slideNumber===slide.slideNumber);
-                const preference=brief.sourceStrategy==='licensed-search-first'?['search','generate']:['generate','search'];
+                const preference=brief.authenticPhotoOnly?['search']:brief.sourceStrategy==='licensed-search-first'?['search','generate']:['generate','search'];
                 const methods=direct?['user',...(external?preference:[])]:external?preference:[];
+                if(!methods.some(method=>method==='user'||providers[method]))record({slideNumber:slide.slideNumber,status:'skipped',reasonCode:brief.authenticPhotoOnly?'AUTHENTIC_PHOTO_PROVIDER_UNAVAILABLE':'IMAGE_PROVIDER_UNAVAILABLE'});
                 for(const method of methods){
                     if(method!=='user'&&!providers[method])continue;
                     // Exact scientific diagrams may never be replaced by synthetic pictures.
                     if(method==='generate'&&(brief.kind==='diagram'||/precise anatomy|histolog|diagnostic (?:scan|image)|radiograph/i.test(brief.description)))continue;
-                    const identity=method==='user'?direct.assetId||'user':providers.identity||'injected-provider';
+                    const identity=method==='user'?direct.assetId||'user':(providers.identity||'injected-provider')+(method==='search'?':licensed-search-v2':'');
                     const cacheKey=createHash('sha256').update(JSON.stringify({version:2,brief,identity,method,quality:policy.quality})).digest('hex');
                     const cachePath=path.join(root,cacheKey+'.json');
                     if(method!=='user')try{
                         const meta=JSON.parse(await fs.readFile(cachePath,'utf8'));
+                        if(brief.authenticPhotoOnly&&(meta.generationMethod==='ai-generated'||meta.synthetic||meta.mediaKind&&meta.mediaKind!=='photograph'))throw new Error('Cached asset is not an authentic photograph');
                         if(Date.now()-meta.cachedAt<policy.cacheDays*86400000){
                             const filePath=path.join(root,meta.id+'.jpg'),buffer=await fs.readFile(filePath);
                             if(createHash('sha256').update(buffer).digest('hex')!==meta.id)throw new Error('Cache checksum failed');
@@ -72,14 +74,15 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                     }catch{}
                     for(let attempt=0;attempt<=policy.retries;attempt++){
                         if(cancelled||Date.now()>=deadline)break;
-                        if(method==='generate'&&!budget.reserve())break;
+                        if(method==='generate'&&!budget.reserve()){record({slideNumber:slide.slideNumber,method,status:'skipped',reasonCode:'GENERATION_BUDGET_UNAVAILABLE'});break;}
                         const controller=new AbortController(),started=Date.now();let timer,reservation;
                         controllers.add(controller);
                         try{
                             const candidate=method==='user'?direct:await Promise.race([
                                 providers[method]({...brief,attempt,excludeAssetIds:[...used],signal:controller.signal,resolution:policy.resolution}),
                                 new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('Image provider timed out'));},Math.min(policy.timeoutMs,Math.max(1,deadline-Date.now())));})]);
-                            if(!candidate){record({slideNumber:slide.slideNumber,method,status:'empty',attempt:attempt+1});break;}
+                            if(!candidate){record({slideNumber:slide.slideNumber,method,status:'empty',reasonCode:'NO_ELIGIBLE_IMAGE',attempt:attempt+1});break;}
+                            if(brief.authenticPhotoOnly&&(candidate.generationMethod==='ai-generated'||candidate.synthetic||candidate.mediaKind&&candidate.mediaKind!=='photograph'))throw new Error('Authentic photography required; synthetic or non-photographic asset rejected');
                             const sourceKey=Buffer.isBuffer(candidate.buffer)?createHash('sha256').update(candidate.buffer).digest('hex'):'';
                             if(usedSources.has(sourceKey))throw new Error('Duplicate image in presentation');
                             usedSources.add(sourceKey);reservation=sourceKey;
@@ -88,7 +91,7 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                             used.add(asset.id);usedSources.add(asset.sourceChecksum);
                             if(method!=='user'){const {data,filePath,...meta}=asset;await fs.writeFile(cachePath,JSON.stringify({...meta,cachedAt:Date.now()}));}
                             record({slideNumber:slide.slideNumber,method,status:'resolved',attempt:attempt+1,model:asset.model,elapsedMs:Date.now()-started});return asset;
-                        }catch(error){if(reservation)usedSources.delete(reservation);record({slideNumber:slide.slideNumber,method,status:'failed',attempt:attempt+1,reason:error.message.replace(/https?:\/\/\S+/g,'[provider URL]').slice(0,180),elapsedMs:Date.now()-started});}
+                        }catch(error){if(reservation)usedSources.delete(reservation);record({slideNumber:slide.slideNumber,method,status:'failed',attempt:attempt+1,reasonCode:error.code==='PHOTO_PROVIDER_RATE_LIMITED'?'PROVIDER_RATE_LIMITED':error.code==='PHOTO_SEARCH_API_ERROR'?'PROVIDER_SEARCH_FAILED':/timed? ?out|timeout|abort/i.test(error.message)?'PROVIDER_TIMEOUT':/fetch failed|network|ENOTFOUND|ECONN/i.test(error.message)?'PROVIDER_NETWORK_ERROR':/authentic photography/i.test(error.message)?'AUTHENTIC_PHOTO_REQUIRED':'IMAGE_PROVIDER_OR_VALIDATION_FAILED',reason:error.message.replace(/https?:\/\/\S+/g,'[provider URL]').slice(0,180),elapsedMs:Date.now()-started});if(error.code==='PHOTO_PROVIDER_RATE_LIMITED')break;}
                         finally{clearTimeout(timer);controller.abort();controllers.delete(controller);}
                     }
                 }

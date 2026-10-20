@@ -50,8 +50,9 @@ test('decode, rights and effective resolution validation run before photo cachin
     await assert.rejects(normalizePhoto({...asset(Buffer.from('not an image'))},b,root,imagePolicy({})));
     await assert.rejects(normalizePhoto({buffer:await photoBuffer()},b,root,imagePolicy({})),/provenance/);
     const blank=await sharp({create:{width:1200,height:900,channels:3,background:'white'}}).png().toBuffer();await assert.rejects(normalizePhoto(asset(blank),b,root,imagePolicy({})),/blank/);
-    const p=await normalizePhoto(asset(await photoBuffer()),b,root,imagePolicy({}));
+    const p=await normalizePhoto({...asset(await photoBuffer()),description:'Actual licensed laboratory photograph'},b,root,imagePolicy({}));
     assert.equal(p.format,'jpeg');assert.ok(p.width>=800);assert.ok(Math.abs(p.width/p.height-p.crop.targetAspectRatio)<.01);assert.ok(p.sourceChecksum);
+    assert.equal(p.altText,'Actual licensed laboratory photograph');
 });
 test('deck image session caps concurrency, caches decoded assets and rejects duplicate sources',async t=>{
     const root=await temp(t),sample=imagerySamples[0],buffer=await photoBuffer();let calls=0,active=0,peak=0;

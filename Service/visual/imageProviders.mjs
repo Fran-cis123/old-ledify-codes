@@ -3,9 +3,24 @@ import { fetchPublicResource } from '../input/publicUrl.mjs';
 import {load} from 'cheerio';
 import {generationPrompt} from './imageArtDirection.mjs';
 import {imagePolicy} from './imagePolicy.mjs';
+import {commonsMetadata} from './commonsMetadata.mjs';
 
 const plain=value=>load(String(value||'')).text().replace(/\s+/g,' ').trim().slice(0,1600);
-export function candidateSuitability(query,asset){
+export function stockSearchQueries(query,{slideTitle,subject}={}){
+    if(String(query).startsWith('File:'))return [String(query)];
+    const compact=String(query||'').replace(/\b(?:breathtaking|stunning|beautiful|high[- ]quality|professional|premium|luxury|cinematic|editorial|photograph(?:ic|y|s)?|photos?|images?|full[- ](?:screen|bleed)|wide[- ]angle|composition|travel[- ]magazine|tasteful|elegant)\b/gi,' ').replace(/[^\p{L}\p{N}\s-]/gu,' ').replace(/\s+/g,' ').trim();
+    // Commons search ANDs the words. Scene directions (lighting, framing,
+    // mood, etc.) are not usually present in a photograph's metadata.
+    const title=slideTitle&&slideTitle!==subject?String(slideTitle).split(/[:—|]/)[0].replace(/\b(?:in|the|of|a|an)\b/gi,' ').replace(/[^\p{L}\p{N}\s-]/gu,' ').replace(/\s+/g,' ').trim():'';
+    const words=compact.split(' ');
+    const stem=value=>value.toLowerCase().normalize('NFD').replace(/\p{M}/gu,'').replace(/s$/,'');
+    const titleWords=title.split(' ').filter(Boolean);
+    const anchor=titleWords.length&&titleWords.length<=3&&titleWords.every(t=>words.some(w=>stem(w)===stem(t)))?title:words.slice(0,2).join(' ');
+    const details=words.filter(w=>!anchor.split(' ').some(a=>stem(a)===stem(w))).slice(0,6);
+    const focused=details.length>1?`${anchor} (${details.join(' OR ')})`:'';
+    return [...new Set([compact,words.slice(0,3).join(' '),focused,words.slice(0,2).join(' '),title].filter(Boolean))];
+}
+export function candidateSuitability(query,asset,{partial=false}={}){
     const title=decodeURIComponent((asset.originalUrl||'').split('File:')[1]||'').replace(/_/g,' ').toLowerCase(),description=(asset.description||'').toLowerCase();
     const combined=[title,description].join(' '),historical=/histor|archive|vintage|19[0-5]\d/.test(query.toLowerCase());
     if(!historical&&(/restoration|\bnara\b|\b190\d\b|\b191\d\b/.test(combined)||Number(asset.creationYear)>0&&Number(asset.creationYear)<1970))return -1;
@@ -14,16 +29,14 @@ export function candidateSuitability(query,asset){
     if(/mri|scanner/i.test(query)&&/scanner building|building.*hospital/.test(title))return -1;
     const tokens=query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu)?.filter(t=>!['file','jpg','png','photograph','photo','image','modern','professional','device'].includes(t))||[];
     const matched=tokens.filter(t=>combined.includes(t)).length;
-    if(!matched||matched<Math.ceil(tokens.length*.5))return -1;
+    if(!matched||!partial&&matched<Math.ceil(tokens.length*.5))return -1;
     return tokens.reduce((n,t)=>n+(title.includes(t)?4:description.includes(t)?1:0),0);
 }
 export async function commonsCandidates(query,{signal,limit=6}={}){
     const url=new URL('https://commons.wikimedia.org/w/api.php');
     url.search=new URLSearchParams({action:'query',format:'json',generator:'search',gsrsearch:query+' filetype:bitmap',gsrnamespace:'6',gsrlimit:String(limit),prop:'imageinfo',iiprop:'url|extmetadata|size|mime',iiurlwidth:'1920'});
     if(query.startsWith('File:')){url.searchParams.delete('generator');for(const key of ['gsrsearch','gsrnamespace','gsrlimit'])url.searchParams.delete(key);url.searchParams.set('titles',query);}
-    const response=await fetch(url,{headers:{'User-Agent':'Ledify-VisualAssets/1.0 (licensed presentation imagery)'},signal:signal||AbortSignal.timeout(12000)});
-    if(!response.ok)throw new Error(`Commons metadata search unavailable (HTTP ${response.status})`);
-    const body=await response.json();
+    const body=await commonsMetadata(url,{signal});
     return Object.values(body.query?.pages||{}).sort((a,b)=>(a.index||0)-(b.index||0)).flatMap(page=>{
         const info=page.imageinfo?.[0],m=info?.extmetadata,license=plain(m?.LicenseShortName?.value);
         if(!info||!/^image\/(jpeg|png|webp)$/.test(info.thumbmime||info.mime||'image/jpeg')||! /^(CC0|Public domain|CC BY(?:-SA)? [1-4])/i.test(license)||plain(m?.Restrictions?.value)||info.width<800||info.height<600)return [];
@@ -38,11 +51,22 @@ export async function commonsCandidates(query,{signal,limit=6}={}){
             attributionRequired,attribution:`${creator} — ${license}. Source: ${info.descriptionurl}. Changes: resized, compressed and cropped by Ledify.`,generationMethod:'licensed-search',width:info.width,height:info.height}];
     });
 }
-export async function commonsSearch(request){
-    const candidates=(await commonsCandidates(request.searchQuery,{signal:request.signal})).map(a=>({...a,relevanceScore:candidateSuitability(request.searchQuery,a)})).filter(a=>a.relevanceScore>=0).sort((a,b)=>b.relevanceScore-a.relevanceScore);
-    const candidate=candidates[request.attempt%candidates.length||0];if(!candidate)return null;
-    const {buffer}=await fetchPublicResource(candidate.downloadUrl,{signal:request.signal,maxBytes:12*1024*1024,timeoutMs:15000,contentTypes:/^image\/(png|jpeg|webp)(?:;|$)/i,accept:'image/jpeg,image/png,image/webp'});
-    return {...candidate,buffer};
+export async function commonsSearch(request,{find=commonsCandidates,download=fetchPublicResource}={}){
+    let lastError;
+    for(const query of stockSearchQueries(request.searchQuery,request)){
+        let candidates;
+        try{const anchor=query.includes(' (')?query.split(' (')[0]:query;candidates=(await find(query,{signal:request.signal})).map(a=>({...a,relevanceScore:candidateSuitability(anchor,a),sceneScore:Math.max(0,candidateSuitability(request.searchQuery,a,{partial:true}))})).filter(a=>a.relevanceScore>=0).sort((a,b)=>b.sceneScore-a.sceneScore||b.relevanceScore-a.relevanceScore);}
+        catch(error){if(request.signal?.aborted||error.code==='PHOTO_PROVIDER_RATE_LIMITED')throw error;lastError=error;continue;}
+        const offset=(request.attempt||0)%Math.max(1,candidates.length);
+        for(const candidate of [...candidates.slice(offset),...candidates.slice(0,offset)].slice(0,3)){
+            try{
+                const {buffer}=await download(candidate.downloadUrl,{signal:request.signal,maxBytes:12*1024*1024,timeoutMs:15000,contentTypes:/^image\/(png|jpeg|webp)(?:;|$)/i,accept:'image/jpeg,image/png,image/webp'});
+                return {...candidate,buffer};
+            }catch(error){if(request.signal?.aborted)throw error;lastError=error;}
+        }
+    }
+    if(lastError)throw lastError;
+    return null;
 }
 
 export function configuredImageProviders(env = process.env,{clientFactory}={}) {
@@ -60,7 +84,7 @@ export function configuredImageProviders(env = process.env,{clientFactory}={}) {
             const { buffer } = await fetchPublicResource(photo.src.original, {signal:request.signal, maxBytes: 12 * 1024 * 1024, timeoutMs: 15000, contentTypes: /^image\/(png|jpeg)(?:;|$)/i, accept: 'image/jpeg,image/png' });
             return { buffer, source: 'Pexels', creator: photo.photographer, license: 'Pexels License',
                 licenseUrl: 'https://www.pexels.com/license/', attributionRequired: true, attribution: `Photo by ${photo.photographer} on Pexels`,
-                assetId: String(photo.id), originalUrl: photo.url, creatorUrl: photo.photographer_url, generationMethod: 'licensed-search',sourceType:'licensed-stock' };
+                assetId: String(photo.id), originalUrl: photo.url, creatorUrl: photo.photographer_url, mediaKind:'photograph',generationMethod: 'licensed-search',sourceType:'licensed-stock' };
         } } : {}),
         // Paid generation requires an explicit server-side opt-in and model ID.
         ...(policy.allowGeneration && policy.generationProvider==='gemini' && env.GEMINI_API_KEY && model ? { generate: async request => {

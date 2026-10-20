@@ -1,6 +1,10 @@
 export function wantsTextOnly(context={}){
     return /\b(?:text[ -]only|(?:no|without|avoid)\s+(?:any\s+)?(?:photos?|photographs?|photography|images?|pictures?))\b/i.test([context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].join(' '));
 }
+export function requiresAuthenticPhotography(context={}){
+    const text=[context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].join(' ');
+    return /\b(?:authentic|real|actual)\b[^.!?\n]{0,60}\bphoto(?:graph(?:ic|y|s)?)?s?\b|\b(?:no|without|never|do not use|avoid)\s+AI[- ]generated\s+(?:images|scenes|photos|pictures)/i.test(text);
+}
 export function photoCompositionFor(slide){
     if(slide.slideType==='title')return 'hero-full-bleed';
     if(slide.slideType==='section-divider')return 'photo-divider';
@@ -20,7 +24,7 @@ export function imageBrief(presentation,slide,theme,context={}){
         purpose:request.role==='background'?'opening context':slide.objective||slide.title,
         theme:theme.family,palette:theme.palette,style:theme.style,
         composition,aspectRatio:composition.startsWith('hero-')?'16:9':'4:3',preferredPlacement:composition,cropStrategy:'cover-with-focal-point',
-        sourceStrategy:request.sourceStrategy||'generate-first',qualityRequirements:{minWidth:800,minHeight:600,minEffectivePpi:90,maxBytes:12*1024*1024},
+        sourceStrategy:requiresAuthenticPhotography(context)?'licensed-search-first':request.sourceStrategy||'generate-first',authenticPhotoOnly:requiresAuthenticPhotography(context),qualityRequirements:{minWidth:800,minHeight:600,minEffectivePpi:90,maxBytes:12*1024*1024},
         lighting:'natural, restrained contrast, consistent daylight',perspective:'editorial eye-level or subject-appropriate wide view',
         focalPoint:{x:coordinate(point.x),y:coordinate(point.y)},
         textSpace:'Text sits on a separate opaque theme panel; preserve the subject in the image area.',
@@ -52,7 +56,7 @@ export function planImageCoverage(presentation,context={}){
         // precise diagram. Never replace scientific evidence with AI imagery.
         s.imageRequirement={...supplied,role:s.slideType==='title'?'background':'foreground',kind:supplied.kind||'illustration',required:true,
             description:supplied.description||`Contextual editorial illustration supporting ${s.title}. ${s.objective||''} Illustrative context, not evidence of actual events or a named organization's facilities.`,
-            searchQuery:supplied.searchQuery||[presentation.title,s.title].join(' '),altText:supplied.altText||`Illustrative context for ${s.title}`,sourceStrategy:supplied.sourceStrategy||'generate-first'};
+            searchQuery:supplied.searchQuery||[presentation.title,s.title].join(' '),altText:supplied.altText||`Illustrative context for ${s.title}`,sourceStrategy:requiresAuthenticPhotography(context)?'licensed-search-first':supplied.sourceStrategy||'generate-first',authenticPhotoOnly:requiresAuthenticPhotography(context)};
     }
     if(noPhotos)for(const s of slides)if(['photo','illustration','texture'].includes(s.visualRequirement?.kind))s.visualRequirement={role:'none',kind:'none',required:false,description:'',searchQuery:'',altText:''};
     return {...presentation,slides,imageCoveragePlan:{required:!noPhotos,target,requiredSlideNumbers:noPhotos?[]:eligible.map(s=>s.slideNumber),eligibleSlides:eligible.length,totalSlides:slides.length,reason:noPhotos?'User requested no images':'A relevant embedded picture on every required slide, alongside editable charts and diagrams'}};
