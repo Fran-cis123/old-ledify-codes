@@ -101,7 +101,9 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
     const providers=options.providers || configuredImageProviders(),warnings=[],slides=[];
     const policy={...imagePolicy(),...options.policy,...(options.providerTimeoutMs?{timeoutMs:options.providerTimeoutMs}:{})};
     const session=options.prefetch?.session||createImageAssetSession({providers,policy,root,external:options.external!==false,userAssets:options.userAssets||[],onDiagnostic:options.onImageDiagnostic||(({reason,...safe})=>console.info('[IMAGE]',JSON.stringify(safe)))});
-    if(options.allowIncompleteImages===true)presentation.imageCoveragePlan.required=false;
+    const strict=options.allowIncompleteImages===false||options.allowIncompleteImages!==true&&policy.failureMode==='strict';
+    presentation.imageCoveragePlan.enforcement=strict?'strict':'best-effort';
+    if(!strict)presentation.imageCoveragePlan.required=false;
     const requested=presentation.slides.filter(s=>s.imageRequirement?.required);
     const assets=await Promise.all(requested.map(async s=>{
         const early=options.prefetch?.entries.get(s.slideNumber);
@@ -112,6 +114,8 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
     }));
     const photos=new Map(requested.map((s,i)=>[s.slideNumber,assets[i]]));
     const missing=requested.filter(s=>!([photos.get(s.slideNumber)].flat().some(Boolean))).map(s=>s.slideNumber);
+    if(missing.length&&!strict)warnings.push({code:'PRESENTATION_IMAGES_UNAVAILABLE',stage:'presentation-images',message:'Some requested images were unavailable. The presentation is delivered with readable content and any images that succeeded. Missing images have not been replaced with placeholders or unrelated pictures.',missingSlides:missing,
+        imageFailures:session.diagnostics.filter(d=>d.status!=='resolved').map(({slideNumber,method,status,attempt,reasonCode})=>({slideNumber,method,status,attempt,reasonCode}))});
     if(presentation.imageCoveragePlan.required&&missing.length)throw Object.assign(new Error(requiresAuthenticPhotography(context)&&!requested.some(s=>s.imageRequirement.conceptImage)?'Required authentic photographs could not be resolved. AI image generation is disabled for this request. Check licensed-photo provider network access and search availability, configure PEXELS_API_KEY for an additional photo source, or supply authorized destination photographs.': 'Required presentation pictures could not be resolved. Configure PRESENTATION_ALLOW_IMAGE_GENERATION=true, an accessible GOOGLE_IMAGE_MODEL, sufficient PRESENTATION_MAX_GENERATED_IMAGES/PRESENTATION_MAX_IMAGES and estimated cost budget, or an authorized licensed-image provider. Check provider quota and network access; explicitly request text-only to omit pictures.'),{
         code:'PRESENTATION_IMAGES_UNAVAILABLE',stage:'presentation-images',missingSlides:missing,imageDiagnostics:session.diagnostics,imageBudget:session.budget.report()
     });
@@ -134,6 +138,8 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
         }else if(['photo','illustration'].includes(request?.kind)){
             warnings.push({code:'IMAGE_PROVIDER_FALLBACK',stage:'visual-resolution',slideNumber:slide.slideNumber,message:'No suitable authorized image was resolved within the configured budget; preserving the semantic content.'});
         }
+        delete slide.imageLayoutPlanned;
+        delete slide.photoComposition;
         if(request?.role==='foreground' || slide.content?.visualContent){
             if(['data-chart','table'].includes(slide.slideType)){
                 slide.visualResolution={status:'fallback',method:'native-data-visual'};

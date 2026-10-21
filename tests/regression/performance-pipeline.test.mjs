@@ -17,7 +17,9 @@ import {presentationThemeService} from '../../Service/presentationThemeService.m
 import {presentationRendererService} from '../../Service/presentationRendererService.mjs';
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function root(t){const dir=await fs.mkdtemp(path.join(os.tmpdir(),'ledify-jobs-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));return dir;}
-async function until(fn){for(let i=0;i<200;i++){const value=await fn();if(value)return value;await sleep(10);}throw new Error('Job test deadline exceeded');}
+// These are durable-file correctness checks, not a disk-speed benchmark.
+// Windows file scanning can delay atomic writes beyond a two-second poll loop.
+async function until(fn){const deadline=Date.now()+10000;while(Date.now()<deadline){const value=await fn();if(value)return value;await sleep(10);}throw new Error('Job test deadline exceeded');}
 
 test('rolling scheduling refills free slots before a slow sibling finishes and preserves ordered checkpoints',async()=>{
     let release;const barrier=new Promise(r=>{release=r;}),events=[],saved=[];

@@ -4,6 +4,7 @@ const amount=(v,f)=>Number.isFinite(Number(v))?Math.max(0,Number(v)):f;
 export function imagePolicy(env=process.env){
     return {
         enabled:env.PRESENTATION_IMAGES_ENABLED!=='false',
+        failureMode:env.PRESENTATION_IMAGE_FAILURE_MODE==='strict'?'strict':'warn',
         stockProvider:env.PRESENTATION_STOCK_PROVIDER||'auto',
         allowGeneration:env.PRESENTATION_ALLOW_IMAGE_GENERATION==='true',
         generationProvider:env.PRESENTATION_GENERATION_PROVIDER||'gemini',

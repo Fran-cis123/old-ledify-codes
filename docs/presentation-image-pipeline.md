@@ -108,6 +108,27 @@ Use `POST /api/generate` or `/api/generate/textPrompt`; multipart generation als
 
 Use the inventory's exact `imageName`; PDF names are `pageNumber:imageName`. No automatic assumption links a document picture to a slide or grants its reuse rights. DOCX media entries and PDF embedded images are extracted, not screenshots of arbitrary pages. Low-resolution, animated or unsupported embedded formats are omitted/rejected. Existing text extraction, text prompts, URL inputs and PDF/DOCX source validation remain intact.
 
+## Delivery when image providers fail
+
+The default is `PRESENTATION_IMAGE_FAILURE_MODE=warn`. Image download/search,
+quota, budget, timeout and relevance failures do not discard approved slide
+content. Existing generation endpoints return HTTP 201 with
+`data.result.status = "completed_with_warnings"`, usable preview/download URLs,
+and `data.result.warnings`. A `PRESENTATION_IMAGES_UNAVAILABLE` warning lists
+`missingSlides` and safe `imageFailures`; `generatedContent.visualQuality`
+retains the requested target, actual count, and missing images. Show these
+warnings to users. No placeholders or unrelated photographs replace failures.
+
+This applies to PDF/DOCX uploads, text, URL and combined presentation inputs.
+Resolved images are retained; charts, tables and approved content still render.
+The server can explicitly restore mandatory-photo rejection with
+`PRESENTATION_IMAGE_FAILURE_MODE=strict`. Internal callers may also set
+`visuals.allowIncompleteImages=false`. This setting cannot guarantee external
+provider availability, and genuine AI text or converter failures remain errors.
+Gemini models, credentials, generation routes and response envelopes are unchanged.
+The root API response includes `buildCommit` on Render so the deployed revision
+can be checked after a GitHub update.
+
 ## Authentic photographs
 
 Requests explicitly requiring real or authentic photography use licensed search
@@ -133,7 +154,8 @@ candidates are ranked against the original brief. It tries other licensed
 candidates when a download fails. Licensed image alt text describes the actual
 retrieved photograph rather than the model's imagined scene. Network,
 licensing, relevance, resolution and deck deadline limits still apply. No
-picture-free presentation is published to satisfy a mandatory-photo request.
+picture-free result is described as meeting a mandatory-photo requirement;
+the default delivery instead reports the unmet requirement as a warning.
 
 Relevance uses verified Commons categories as well as filenames/descriptions.
 Automotive requests exclude unrelated appliances and wreck/scrap imagery.
