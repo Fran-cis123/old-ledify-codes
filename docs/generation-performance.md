@@ -3,6 +3,36 @@
 All existing generation endpoints retain their synchronous HTTP 201 behavior.
 Gemini 3.7 Flash and Gemini 3.5 Flash retain their existing text responsibilities.
 
+Browser integration on Render: use background requests for long generations.
+Keep the existing JSON body and send these headers to
+`https://pan2-backend-ivuf.onrender.com/api/generate/textPrompt` (or any other
+generation endpoint):
+
+```http
+Content-Type: application/json
+Prefer: respond-async
+```
+
+On HTTP 202, resolve `data.statusUrl` against the backend origin, then GET it
+every two seconds until `data.status` is `completed` or `failed`. Read the final
+output from `data.result`; show its warnings and use its returned preview and
+download URLs. The initial 202 has no final output yet. Do not resend the POST
+while polling. For multipart uploads, let the browser set Content-Type with
+its boundary. These endpoints do not require cookies; use the default fetch
+credentials policy rather than `credentials: 'include'`.
+
+CORS runs before JSON validation and exposes `Location`, `Preference-Applied`,
+`Retry-After`, response-version and timing headers. Preflight accepts the Prefer
+header. Node uses a 120-second idle keep-alive and a 125-second header timeout
+to reduce proxy connection reuse races. These are not generation time limits.
+
+An HTML/plain-text 502 produced by Render can lack application CORS headers
+because it did not come from Express. This cannot be corrected by adding more
+Express CORS headers. Check Render's runtime logs, restart events and memory
+metrics at that request's timestamp. A JSON AI provider error from Ledify has
+`errorCode` and `stage` and does carry CORS headers. See
+[Render's 502 troubleshooting](https://render.com/docs/troubleshooting-deploys#502-bad-gateway).
+
 For a background request, send `Prefer: respond-async` to any existing generation
 endpoint, with the same JSON or multipart body. Validation, extraction and the
 MongoDB request record are completed before HTTP 202 acceptance:

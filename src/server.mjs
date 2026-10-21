@@ -1,6 +1,7 @@
 import "dotenv/config";
 
 import { createApp } from './app.mjs';
+import { createHttpServer } from './httpServer.mjs';
 import { readServerConfig, safeStartupError, configureMongoDns, connectMongoWithRetry } from './serverConfig.mjs';
 
 
@@ -13,7 +14,7 @@ const startServer = async () => {
 
         console.log("MongoDB is successfully connected");
 
-        const server=app.listen(port,host, () => {
+        const server=createHttpServer(app).listen(port,host, () => {
 
         console.log(`Ledify is running on port ${port}`)
 })

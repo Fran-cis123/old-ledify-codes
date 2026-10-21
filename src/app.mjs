@@ -9,8 +9,9 @@ import { createGenerationRouter } from '../route/generateRoute.mjs';
 
 export function createApp(options={}) {
     const app=express();
+    // Run before body parsing so validation errors are readable by browsers too.
+    app.use(cors({exposedHeaders:['Location','Preference-Applied','Retry-After','X-Ledify-Response-Version','Server-Timing','Warning']}));
     app.use(express.json({limit:'16mb'}));
-    app.use(cors());
     app.use('/api',createGenerationRouter(options));
     app.get('/',(req,res)=>res.json({message:'Ledify backend API',generationEndpoint:'/api/generate',buildCommit:process.env.RENDER_GIT_COMMIT||null}));
 
