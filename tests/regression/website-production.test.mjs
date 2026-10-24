@@ -74,8 +74,8 @@ test('unsafe/oversized/corrupt image input fails safely, and paid image generati
     const root=await temporary(t);await assert.rejects(optimizeWebsiteImage(Buffer.from('not a raster'),{cacheRoot:root}));
     await assert.rejects(optimizeWebsiteImage(Buffer.alloc(12*1024*1024+1),{cacheRoot:root}),/budget/);
     await assert.rejects(downloadWebsiteImage('https://127.0.0.1/a.jpg'),/public internet/);
-    assert.deepEqual(websiteImageProviders({GEMINI_API_KEY:'test-key'}),[]);
-    assert.equal(websiteImageProviders({WEBPAGE_ALLOW_IMAGE_GENERATION:'true',WEBPAGE_IMAGE_MODEL:'configured-model',GEMINI_API_KEY:'test-key'})[0].id,'gemini-image');
+    assert.deepEqual(websiteImageProviders({GEMINI_API_KEY:'test-key'}).map(provider=>provider.id),['commons']);
+    assert.ok(websiteImageProviders({WEBPAGE_ALLOW_IMAGE_GENERATION:'true',WEBPAGE_IMAGE_MODEL:'configured-model',GEMINI_API_KEY:'test-key'}).some(provider=>provider.id==='gemini-image'));
     const image=await fs.readFile('assets/webpage/curated/laboratory.jpg');await assert.rejects(optimizeWebsiteImage(image,{cacheRoot:path.join(root,'timeout'),timeoutMs:1}),/timed out/);
 });
 

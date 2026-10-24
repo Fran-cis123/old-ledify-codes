@@ -1,4 +1,5 @@
 import {centralImageSubject} from './imageReview.mjs';
+import {imageContextExclusions} from '../visual/imageRelevance.mjs';
 const bounded=(value,fallback,min,max)=>Number.isFinite(Number(value))?Math.min(max,Math.max(min,Math.floor(Number(value)))):fallback;
 export function imagePolicy(env=process.env){
     return {maxAssets:bounded(env.WEBPAGE_IMAGE_MAX_ASSETS,4,1,8),maxGenerated:bounded(env.WEBPAGE_IMAGE_MAX_GENERATED,2,0,4),timeoutMs:bounded(env.WEBPAGE_IMAGE_TIMEOUT_MS,30000,1000,60000),totalMs:bounded(env.WEBPAGE_IMAGE_TOTAL_MS,60000,1000,120000),retries:bounded(env.WEBPAGE_IMAGE_RETRIES,0,0,1),concurrency:bounded(env.WEBPAGE_IMAGE_CONCURRENCY,1,1,2)};
@@ -23,5 +24,8 @@ export function planWebsiteImages(page,context={}){
         }
         else if(['image-text','image-band'].includes(section.composition)&&!planned.some(image=>image.sectionId===section.id))planned.push({role:'section',sectionType:section.type,sectionId:section.id,query:`${section.heading}. ${subjects.join(', ')}`,alt:`Illustrative imagery: ${section.heading}`,aspectRatio:'16:9',style});
     }
-    const seen=new Set();return planned.filter(image=>{const key=[image.role,image.sectionId,image.itemTitle].join(':');if(seen.has(key))return false;seen.add(key);return true;}).map(image=>({...image,required:image.required??(image.role==='item'||image.role==='section'&&everySection||image.role==='hero'&&(requireImages||['full-bleed','image-led'].includes(page.designBrief.heroComposition))),purpose:image.purpose||image.sectionType+' content: '+(image.itemTitle||image.query),lighting:image.lighting||page.websiteBrief?.photography.lighting||'natural',temperature:image.temperature||page.websiteBrief?.photography.temperature||'neutral',focalPoint:image.focalPoint||page.websiteBrief?.photography.crop||'center',method:image.method||'authorized-source-or-configured-generation'}));
+    const seen=new Set();return planned.filter(image=>{const key=[image.role,image.sectionId,image.itemTitle].join(':');if(seen.has(key))return false;seen.add(key);return true;}).map(image=>({...image,
+        topic:page.inferredContext?.topic||page.title,sectionTopic:image.itemTitle||page.sections.find(section=>section.id===image.sectionId)?.heading||'',
+        exclusions:imageContextExclusions(context),
+        required:image.required??(image.role==='item'||image.role==='section'&&everySection||image.role==='hero'&&(requireImages||['full-bleed','image-led'].includes(page.designBrief.heroComposition))),purpose:image.purpose||image.sectionType+' content: '+(image.itemTitle||image.query),lighting:image.lighting||page.websiteBrief?.photography.lighting||'natural',temperature:image.temperature||page.websiteBrief?.photography.temperature||'neutral',focalPoint:image.focalPoint||page.websiteBrief?.photography.crop||'center',method:image.method||'authorized-source-or-configured-generation'}));
 }

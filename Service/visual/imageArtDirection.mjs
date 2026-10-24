@@ -1,3 +1,4 @@
+import {imageContextExclusions} from './imageRelevance.mjs';
 export function wantsTextOnly(context={}){
     return /\b(?:text[ -]only|(?:no|without|avoid)\s+(?:any\s+)?(?:photos?|photographs?|photography|images?|pictures?))\b/i.test([context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].join(' '));
 }
@@ -23,7 +24,7 @@ export function imageBrief(presentation,slide,theme,context={}){
     const point=context.designPreferences?.imageFocalPoints?.[slide.slideNumber]||context.designPreferences?.imageFocalPoint||{x:.5,y:.5};
     const coordinate=v=>Number.isFinite(Number(v))?Math.max(0,Math.min(1,Number(v))):.5;
     const composition=photoCompositionFor(slide);
-    return {...request,slideNumber:slide.slideNumber,slideTitle:slide.title,subject:presentation.title,message:slide.objective||slide.title,
+    return {...request,exclusions:imageContextExclusions(context),slideNumber:slide.slideNumber,slideTitle:slide.title,subject:presentation.title,message:slide.objective||slide.title,
         audience:context.audience||presentation.inferredContext?.audience||'general audience',
         description:request.description||`${slide.title}; illustrative context for ${presentation.title}`,
         searchQuery:request.searchQuery||[presentation.title,slide.title].join(' ').slice(0,160),

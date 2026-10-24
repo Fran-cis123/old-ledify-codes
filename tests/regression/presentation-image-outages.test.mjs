@@ -37,7 +37,7 @@ test('partial photo success preserves the available image and reports precisely 
     const root=await temporary(t),buffer=await fs.readFile('assets/webpage/curated/laboratory.jpg');
     const output=await resolvePresentationVisuals(ready(sample()),{}, {cacheRoot:root,diagramPlanner:false,policy:{retries:0},providers:{search:async b=>{
         if(b.slideNumber!==1)throw new Error('Provider network unavailable');
-        return {buffer,source:'CDC',creator:'James Gathany',license:'Public domain',generationMethod:'licensed-search'};
+        return {buffer,description:'Laboratory research with a scientist pipetting samples',source:'CDC',creator:'James Gathany',license:'Public domain',generationMethod:'licensed-search'};
     }}});
     assert.ok(output.slides[0].photoAsset);assert.equal(output.visualQuality.actual,1);
     assert.deepEqual(output.warnings.find(w=>w.code==='PRESENTATION_IMAGES_UNAVAILABLE').missingSlides,[2,3,4,5,8]);

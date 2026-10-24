@@ -8,6 +8,7 @@ import {userWebsiteBrief} from './websiteBrief.mjs';
 import {acquireProviderImage} from './providerCache.mjs';
 import {imagePolicy,planWebsiteImages} from './imageStrategy.mjs';
 import {reviewImageCandidate} from './imageReview.mjs';
+import {relevanceDiagnostic} from '../visual/imageRelevance.mjs';
 import {generationConcurrency,generateIndependent} from '../ai/concurrency.mjs';
 import {classifyImageError,imageBackoff,imageDiagnostic} from '../visual/imageAssetService.mjs';
 
@@ -16,10 +17,11 @@ const safeCreditUrl=value=>{try{const url=new URL(value);url.search='';url.hash=
 
 export async function acquireWebsiteImages(page,context={},options={}){
     const warnings=[],assets={},selected=[],diagnostics=[],disabled=new Set();
+    const requests=planWebsiteImages(page,context);
     const logImage=entry=>{diagnostics.push(entry);imageDiagnostic({generationType:'webpage',...entry},options.logger);};
     const policy={...imagePolicy(),...options.policy},started=Date.now();let generatedCalls=0;
     const user=userWebsiteBrief('',context);
-    const optimize=async (record,buffer)=>{
+    const optimize=async (record,buffer,target=requests.find(target=>target.role===record.role&&(!record.sectionId||target.sectionId===record.sectionId))||record)=>{
         if(selected.length>=policy.maxAssets||selected.some(asset=>asset.role==='hero'&&record.role==='hero'))return false;
         if(!record.alt?.trim()||!record.license?.trim()||!record.creator?.trim())throw new Error('Missing image provenance');
         const optimized=await optimizeWebsiteImage(buffer,options.optimization);
@@ -28,8 +30,9 @@ export async function acquireWebsiteImages(page,context={},options={}){
         if(selected.length>=policy.maxAssets||selected.some(asset=>asset.role==='hero'&&record.role==='hero'))return false;
         if(selected.some(asset=>asset.assetId===optimized.id)&&record.allowRepeat!==true){warnings.push({code:'WEBPAGE_DUPLICATE_IMAGE_REJECTED',message:'A repeated image was excluded from another placement.'});return false;}
         const dimensions=optimized.variants.at(-1);
-        const review=record.source==='User supplied'||record.source==='Authorized brand catalog'?{accepted:true,method:'caller-authorized',limits:'Caller ownership/representation assertions require review.'}:reviewImageCandidate(record.source==='Google Gemini'?{...record,subject:record.query}:record,record,dimensions);
+        const review=record.role==='logo'?{accepted:true,method:'caller-authorized-logo',limits:'Caller ownership/representation assertions require review.'}:reviewImageCandidate(record.source==='Google Gemini'?{...record,subject:target.query}:record,target,dimensions);
         if(record.source==='Google Gemini')review.method='generation-intent-and-dimensions';
+        relevanceDiagnostic(record,target,review,options.relevanceLogger);
         if(!review.accepted){warnings.push({code:'WEBPAGE_IMAGE_RELEVANCE_REJECTED',message:'An image failed semantic relevance, provenance, resolution or placement checks.'});return false;}
         const variants=optimized.variants.map(variant=>{
             const file=`assets/images/image-${optimized.id}-${variant.width}.webp`;assets[file]=variant.buffer;
@@ -56,7 +59,6 @@ export async function acquireWebsiteImages(page,context={},options={}){
         if(!records.length)warnings.push(...local.warnings);
     }
     // Licensed search/generation resolve each planned target, not just the hero.
-    const requests=planWebsiteImages(page,context);
     const providers=options.providers||websiteImageProviders();
     const matches=(asset,target)=>asset.role===target.role&&(target.role==='hero'||(asset.sectionId?asset.sectionId===target.sectionId:asset.sectionType===target.sectionType))&&(target.role!=='item'||asset.itemTitle===target.itemTitle);
     if(options.external!==false){
@@ -77,7 +79,7 @@ export async function acquireWebsiteImages(page,context={},options={}){
                         if(provider.id==='gemini-image')generatedCalls++;
                         const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('Image acquisition timed out'));},Math.min(policy.timeoutMs,remaining));});
                         const record=await Promise.race([acquireProviderImage(provider,{...target,signal:controller.signal},{cacheRoot:options.optimization?.cacheRoot}),timeout]);
-                        if(record){resolved=await optimize({...record,...target,alt:record.alt||target.alt,buffer:undefined},record.buffer);}
+                        if(record){resolved=await optimize({...record,...target,alt:record.alt||'',buffer:undefined},record.buffer,target);}
                         diagnostics.push(imageDiagnostic({generationType:'webpage',provider:provider.id,model:provider.model,target:target.role,status:resolved?'resolved':'empty',reasonCode:resolved?undefined:'NO_ELIGIBLE_IMAGE',attempt:attempt+1,elapsedMs:performance.now()-attemptStarted,storage:resolved?'optimized':'skipped',validation:resolved?'passed':'rejected',cacheHit:record?.providerCacheHit},options.logger));
                         break;
                     }catch(error){const info=classifyImageError(error);clearTimeout(timer);logImage({provider:provider.id,model:provider.model,target:target.role,status:'failed',attempt:attempt+1,...info,elapsedMs:performance.now()-attemptStarted});warnings.push({code:'WEBPAGE_IMAGE_PROVIDER_UNAVAILABLE',provider:provider.id,target:target.role,reasonCode:info.reasonCode,message:'An image provider failed or exceeded its budget; the next authorized source is used.'});if(['IMAGE_INVALID_CREDENTIALS','IMAGE_ACCESS_DENIED','IMAGE_MODEL_UNAVAILABLE','IMAGE_REQUEST_REJECTED'].includes(info.reasonCode))disabled.add(provider.id);if(!info.retryable||attempt>=policy.retries||!await imageBackoff(error,attempt,{remainingMs:policy.totalMs-(Date.now()-started),sleep:options.sleep}))break;}
@@ -94,13 +96,13 @@ export async function acquireWebsiteImages(page,context={},options={}){
             for(const target of requests){
                 if(selected.length>=policy.maxAssets)break;
                 if(selected.some(asset=>matches(asset,target)))continue;
-                const ranked=entries.map(entry=>({entry,review:reviewImageCandidate(entry,target)})).filter(candidate=>candidate.review.accepted);
+                const ranked=entries.map(entry=>{const review=reviewImageCandidate(entry,target);if(!review.accepted)relevanceDiagnostic(entry,target,review,options.relevanceLogger);return {entry,review};}).filter(candidate=>candidate.review.accepted);
                 if(!ranked.length)continue;
                 const root=await fs.realpath(path.dirname(options.curatedManifest || bundledCatalog));
                 for(const {entry} of ranked){
                     const filename=await fs.realpath(path.join(root,entry.file));
                     if(!filename.startsWith(root+path.sep))throw new Error('Invalid curated asset path');
-                    if(await optimize({...entry,...target,alt:entry.alt},await fs.readFile(filename)))break;
+                    if(await optimize({...entry,...target,alt:entry.alt},await fs.readFile(filename),target))break;
                 }
             }
         }catch{warnings.push({code:'WEBPAGE_CURATED_IMAGE_UNAVAILABLE',message:'The local fallback image could not be loaded.'});}

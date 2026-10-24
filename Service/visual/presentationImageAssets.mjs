@@ -8,6 +8,7 @@ import {PHOTO_FRAMES} from '../../renderer/presentation/photoCompositions.mjs';
 import {imageSpecificationSchema} from '../../templates/presentation/visualSchemas.mjs';
 import {validateSchema} from '../ai/responseValidation.mjs';
 import {storeImageAsset,atomicImageJson,classifyImageError,imageBackoff,imageDiagnostic} from './imageAssetService.mjs';
+import {evaluateImageRelevance,relevanceDiagnostic} from './imageRelevance.mjs';
 
 export async function normalizePhoto(asset,brief,root,policy){
     if(!asset?.source||!asset.creator||!asset.license||(asset.attributionRequired&&!asset.attribution))throw new Error('Incomplete image usage rights or provenance');
@@ -64,7 +65,7 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                 const cachePath=path.join(root,cacheKey+'.json');
                 if(method!=='user')try{
                     const meta=JSON.parse(await fs.readFile(cachePath,'utf8'));
-                    if(method==='search'&&providers.validateSearchAsset&&!providers.validateSearchAsset(brief,meta))throw new Error('Cached photograph does not match the requested subject');
+                    if(method==='search'&&(!evaluateImageRelevance(meta,brief).accepted||providers.validateSearchAsset&&!providers.validateSearchAsset(brief,meta)))throw new Error('Cached photograph does not match the requested subject');
                     if(brief.authenticPhotoOnly&&(meta.generationMethod==='ai-generated'||meta.synthetic||meta.mediaKind&&meta.mediaKind!=='photograph'))throw new Error('Cached asset is not an authentic photograph');
                     if(Date.now()-meta.cachedAt<policy.cacheDays*86400000){
                         const filePath=path.join(root,meta.id+'.jpeg'),buffer=await fs.readFile(filePath);
@@ -91,6 +92,10 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                                 new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('Image provider timed out'));},Math.min(policy.timeoutMs,Math.max(1,deadline-Date.now())));})]);
                             if(!candidate){record({slideNumber:slide.slideNumber,method,status:'empty',reasonCode:'NO_ELIGIBLE_IMAGE',attempt:attempt+1});return {stop:true};}
                             if(brief.authenticPhotoOnly&&(candidate.generationMethod==='ai-generated'||candidate.synthetic||candidate.mediaKind&&candidate.mediaKind!=='photograph'))throw new Error('Authentic photography required; synthetic or non-photographic asset rejected');
+                            if(method==='search'){
+                                const review=evaluateImageRelevance(candidate,brief);relevanceDiagnostic(candidate,brief,review);
+                                if(!review.accepted)throw Object.assign(new Error('Image metadata does not match the requested subject'),{code:'IMAGE_RELEVANCE_REJECTED'});
+                            }
                             const sourceKey=Buffer.isBuffer(candidate.buffer)?createHash('sha256').update(candidate.buffer).digest('hex'):'';
                             if(usedSources.has(sourceKey))throw new Error('Duplicate image in presentation');
                             usedSources.add(sourceKey);reservation=sourceKey;

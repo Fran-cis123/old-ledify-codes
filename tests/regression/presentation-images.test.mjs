@@ -22,7 +22,9 @@ import {candidateSuitability,commonsCandidates,configuredImageProviders} from '.
 import {createApp} from '../../src/app.mjs';
 
 const photoBuffer=()=>fs.readFile(new URL('../../assets/webpage/curated/laboratory.jpg',import.meta.url));
-const asset=buffer=>({buffer,source:'CDC',creator:'James Gathany',license:'Public domain',attributionRequired:true,attribution:'James Gathany / CDC',generationMethod:'licensed-search'});
+// Provider metadata is simulated here; these tests verify byte embedding/cache,
+// not visual recognition. Relevance tests separately exercise real CDC metadata.
+const asset=buffer=>({buffer,description:'MRI scanner hospital radiology',source:'Fixture provider',creator:'Fixture creator',license:'Test fixture',attributionRequired:true,attribution:'Fixture creator',generationMethod:'licensed-search'});
 const temp=async t=>{const root=await fs.mkdtemp(path.join(os.tmpdir(),'ledify-images-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));return root;};
 const theme={family:'scientific',palette:{accent:'teal'},style:'editorial'};
 

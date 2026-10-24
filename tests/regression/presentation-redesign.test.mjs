@@ -76,7 +76,7 @@ test('clinical accountability is not treated as automatic legal liability',()=>{
 test('authorized photos are embedded once, preserve aspect ratio and retain attribution in notes',async t=>{
     const root=await fs.mkdtemp(path.join(os.tmpdir(),'ledify-presentation-photo-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
     const buffer=await fs.readFile(new URL('../../assets/webpage/curated/laboratory.jpg',import.meta.url));
-    const photo={buffer,source:'CDC',creator:'James Gathany',license:'Public domain',attributionRequired:true,attribution:'James Gathany / CDC',originalUrl:'https://phil.cdc.gov/'};
+    const photo={buffer,description:'A CDC scientist pipetting samples in a laboratory',source:'CDC',creator:'James Gathany',license:'Public domain',attributionRequired:true,attribution:'James Gathany / CDC',originalUrl:'https://phil.cdc.gov/'};
     const presentation=structuredClone(healthcare.presentation);presentation.slides=presentation.slides.slice(0,1);
     for(let i=2;i<=3;i++)presentation.slides.push({slideNumber:i,slideType:'text-visual',title:'Laboratory context '+i,layoutId:'text-visual-split',content:{visualContent:{text:'Illustrative laboratory photograph, rather than evidence about a particular facility.',visual:{type:'photo',description:'A laboratory photograph',searchQuery:'laboratory'}}},visualRequirement:{role:'foreground',kind:'photo',required:true,description:'Laboratory',altText:'Illustrative laboratory photograph',searchQuery:'laboratory'}});
     const ready=presentationRendererService(presentationThemeService(presentationLayoutService(presentation),healthcare.context));

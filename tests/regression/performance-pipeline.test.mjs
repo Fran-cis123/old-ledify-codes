@@ -90,7 +90,7 @@ test('approved-slide image work overlaps drafting and the final renderer reuses 
         {slideNumber:1,slideType:'title',title:'Source review',visualRequirement:{kind:'photo',required:true,description:'Laboratory',searchQuery:'Laboratory'},content:{titleContent:{title:'Source review',subtitle:'A concise explanation',supportingText:'Preserve the evidence'}}},
         {slideNumber:2,slideType:'focused-explanation',title:'Evaluate evidence',visualRequirement:{kind:'photo',required:true,description:'Research',searchQuery:'Research'},imageLayoutPlanned:true}
     ]};
-    const options={cacheRoot:directory,onImageDiagnostic:()=>{},diagramPlanner:false,policy:{concurrency:2,retries:0},providers:{search:async brief=>{calls++;await gate;return {buffer:await sharp(source).modulate({brightness:.7+brief.slideNumber*.1}).jpeg().toBuffer(),source:'Public-domain fixture',creator:'CDC',license:'Public domain',generationMethod:'licensed-search'};}}};
+    const options={cacheRoot:directory,onImageDiagnostic:()=>{},diagramPlanner:false,policy:{concurrency:2,retries:0},providers:{search:async brief=>{calls++;await gate;return {buffer:await sharp(source).modulate({brightness:.7+brief.slideNumber*.1}).jpeg().toBuffer(),description:'Laboratory research with a scientist pipetting samples',source:'Public-domain fixture',creator:'CDC',license:'Public domain',generationMethod:'licensed-search'};}}};
     const early=presentationPrefetch({inputType:'prompt',input:'Explain source review',context:{},options});early.update(deck);
     await until(()=>calls===1);
     deck.slides[1].content={textContent:{heading:'Evaluate evidence',body:'Separate observations from assumptions and review their limitations.'}};

@@ -5,6 +5,7 @@ import {generationPrompt} from './imageArtDirection.mjs';
 import {imagePolicy} from './imagePolicy.mjs';
 import {commonsMetadata} from './commonsMetadata.mjs';
 import {imageDiagnostic,classifyImageError} from './imageAssetService.mjs';
+import {evaluateImageRelevance,relevanceDiagnostic} from './imageRelevance.mjs';
 
 const plain=value=>load(String(value||'')).text().replace(/\s+/g,' ').trim().slice(0,1600);
 export function stockSearchQueries(query,{slideTitle,subject}={}){
@@ -67,10 +68,11 @@ export async function commonsCandidates(query,{signal,limit=6}={}){
 }
 export async function commonsSearch(request,{find=commonsCandidates,download=fetchPublicResource}={}){
     let lastError;const attemptedUrls=new Set();
-    for(const query of stockSearchQueries(request.searchQuery,request)){
+    for(const query of stockSearchQueries(request.searchQuery,request).slice(0,request.maxSearchQueries||8)){
         let candidates;
-        try{const anchor=query.includes(' (')?query.split(' (')[0]:query;candidates=(await find(query,{signal:request.signal})).map(a=>({...a,relevanceScore:candidateSuitability(anchor,a),sceneScore:candidateSuitability(request.searchQuery,a,{partial:true})})).filter(a=>a.relevanceScore>=0&&a.sceneScore>=0).sort((a,b)=>b.sceneScore-a.sceneScore||b.relevanceScore-a.relevanceScore);}
+        try{const anchor=query.includes(' (')?query.split(' (')[0]:query;candidates=(await find(query,{signal:request.signal})).map(a=>({...a,relevanceScore:candidateSuitability(anchor,a),sceneScore:candidateSuitability(request.searchQuery,a,{partial:true})})).filter(a=>{const eligible=a.relevanceScore>=0&&a.sceneScore>=0;if(!eligible)relevanceDiagnostic(a,request,{accepted:false,reason:'SEARCH_CONTEXT_MISMATCH',method:'independent-metadata'});return eligible;}).sort((a,b)=>b.sceneScore-a.sceneScore||b.relevanceScore-a.relevanceScore);}
         catch(error){if(request.signal?.aborted||error.code==='PHOTO_PROVIDER_RATE_LIMITED')throw error;lastError=error;continue;}
+        candidates=candidates.filter(candidate=>{const review=evaluateImageRelevance(candidate,request);relevanceDiagnostic(candidate,request,review);return review.accepted;});
         const offset=(request.attempt||0)%Math.max(1,candidates.length);
         for(const candidate of [...candidates.slice(offset),...candidates.slice(0,offset)].filter(c=>!attemptedUrls.has(c.downloadUrl)).slice(0,3)){
             attemptedUrls.add(candidate.downloadUrl);
@@ -87,18 +89,18 @@ export async function commonsSearch(request,{find=commonsCandidates,download=fet
 export function configuredImageProviders(env = process.env,{clientFactory}={}) {
     const policy=imagePolicy(env),model=googleImageModel(env,'PRESENTATION_IMAGE_MODEL');
     const providers={identity:`${policy.stockProvider}:${policy.generationProvider}:${model||'no-image-model'}:google-image-v1`,
-        validateSearchAsset:(request,asset)=>asset.source!=='Wikimedia Commons'||candidateSuitability(request.searchQuery,asset,{partial:true})>=0,
+        validateSearchAsset:(request,asset)=>evaluateImageRelevance(asset,request).accepted&&(asset.source!=='Wikimedia Commons'||candidateSuitability(request.searchQuery,asset,{partial:true})>=0),
         ...(env.PEXELS_API_KEY&&['auto','pexels'].includes(policy.stockProvider) ? { search: async request => {
             const url = new URL('https://api.pexels.com/v1/search');
             url.search = new URLSearchParams({ query: request.searchQuery, per_page: '4', orientation: 'landscape', size: 'large' });
             const response = await fetch(url, { headers: { Authorization: env.PEXELS_API_KEY }, signal: request.signal||AbortSignal.timeout(12000) });
             if (!response.ok) throw Object.assign(new Error('Licensed image search unavailable'),{status:response.status,headers:response.headers});
             const body = await response.json();
-            const eligible=body.photos?.filter(p => p.width >= 1200 && p.height >= 800 && p.src?.original && p.photographer && p.url)||[];
+            const eligible=body.photos?.filter(p => p.width >= 1200 && p.height >= 800 && p.src?.original && p.photographer && p.url&&evaluateImageRelevance({alt:p.alt},request).accepted)||[];
             const photo=eligible[(request.attempt||0)%eligible.length];
             if (!photo) return null;
             const { buffer } = await fetchPublicResource(photo.src.original, {signal:request.signal, maxBytes: 12 * 1024 * 1024, timeoutMs: 15000, contentTypes: /^image\/(png|jpeg)(?:;|$)/i, accept: 'image/jpeg,image/png' });
-            return { buffer, source: 'Pexels', creator: photo.photographer, license: 'Pexels License',
+            return { buffer, description:photo.alt||'', source: 'Pexels', creator: photo.photographer, license: 'Pexels License',
                 licenseUrl: 'https://www.pexels.com/license/', attributionRequired: true, attribution: `Photo by ${photo.photographer} on Pexels`,
                 assetId: String(photo.id), originalUrl: photo.url, creatorUrl: photo.photographer_url, mediaKind:'photograph',generationMethod: 'licensed-search',sourceType:'licensed-stock' };
         } } : {}),
