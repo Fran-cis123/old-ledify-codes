@@ -148,6 +148,14 @@ Before Product's final acceptance and Week 7 UAT:
 
 **Decision: backend fixes and regression evidence are ready for targeted retesting; final MVP acceptance remains conditional.** Performance, human quality approval, frontend integration and operational persistence are still open. This report does not replace the workbook's owners or grant UAT approval.
 
+## Deployed backend verification
+
+Production smoke passed on code commit `19a14df6f6114125976414eccf5100eceff7f1cb` at `https://pan2-backend-ivuf.onrender.com` after automatic deployment. Verified the expected build commit, 400 prompt validation with CORS headers, actionable 502 unreachable-source feedback, real background document generation with PDF selected, and actual DOCX/PDF/HTML downloads. The real deployed database and Linux native PDF renderer were used. Evidence: `generated/week6-uat/deployed/report.json`, copies of both downloaded files, and `generated/week6-deployed-smoke.log`.
+
+This separate 100-word document case acknowledged in 509 ms and finished in 24,429 ms (content 8,282 ms; renderer/artifact 13,602 ms; polling/network/database account for additional time). PDF contained one readable page. It is a different workload from the local 400-word case and is not evidence of a comparable speed improvement or a ≤10-second pass.
+
+The deployed document preview CSP was still `frame-ancestors 'self'`. The exact frontend-origin environment configuration remains necessary for iframe integration. No company environment, plan or storage settings were changed. Deployment verification here is backend-only; frontend acceptance remains with its developer. A subsequent report-only commit does not alter the tested application code. Copies of downloaded evidence are retained locally because the current deployment filesystem is ephemeral.
+
 ## Source traceability appendix
 
 Cell-extraction SHA-256: `9b4cd7e059e55e433c6f9e50c8594d40bba3c184cb60c30729fc03e884b605f4`. The source was read successfully at the start; the original Downloads path was no longer available at finalization. The complete cell extraction is retained locally. Each source requirement row is preserved below, including historical QA evidence, gap, action, owner and gate. These are source assertions, not substituted audit pass results. Grouped IDs remain grouped in the source.
