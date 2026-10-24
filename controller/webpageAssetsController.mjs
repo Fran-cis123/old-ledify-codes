@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual,createHash } from 'node:crypto';
+import {imageDiagnostic} from '../Service/visual/imageAssetService.mjs';
 import { WEBPAGE_ROOT, tokenHash } from '../Service/webpageArtifactService.mjs';
 import { previewViewer, viewerCss, viewerJs } from '../renderer/webpage/previewViewer.mjs';
 const uuid = /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i;
@@ -41,6 +42,10 @@ export function webpageAssetHandlers(root = WEBPAGE_ROOT) {
             const found = await read(req, res); if (!found) return;
             const filename = Array.isArray(req.params.file) ? req.params.file.join('/') : req.params.file;
             if (!found.metadata.allowedFiles.includes(filename)) return res.sendStatus(404);
+            if(found.metadata.imageHashes?.[filename]){
+                try{const buffer=await fs.readFile(path.join(found.directory,'site',filename));if(createHash('sha256').update(buffer).digest('hex')!==found.metadata.imageHashes[filename])throw new Error('Checksum mismatch');return res.type(path.extname(filename)).send(buffer);}
+                catch{imageDiagnostic({generationType:'webpage',provider:'artifact-store',status:'failed',reasonCode:'IMAGE_DELIVERY_FAILED',storage:'unavailable',validation:'failed'});return res.status(404).json({message:'Image asset is missing or invalid',errorCode:'IMAGE_DELIVERY_FAILED'});}
+            }
             // Applied to direct HTML visits as well as iframe loads. No same-origin,
             // forms, popups, top navigation, storage or network APIs are granted.
             res.set('Content-Security-Policy', `sandbox allow-scripts; default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors ${frameAncestors()}`);

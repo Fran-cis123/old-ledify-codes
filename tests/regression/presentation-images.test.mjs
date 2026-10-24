@@ -35,9 +35,9 @@ test('image policy requires explicit cost configuration; retries reserve budget 
 });
 test('visual plans honor no-image requests and do not displace precise diagrams',()=>{
     const d=structuredClone(imagerySamples[0].presentation),planned=planImageCoverage(d);
-    assert.equal(planned.imageCoveragePlan.target,8);assert.equal(planned.slides[6].visualRequirement.kind,'diagram');
+    assert.equal(planned.imageCoveragePlan.target,6);assert.equal(planned.slides[6].visualRequirement.kind,'diagram');assert.equal(planned.slides[6].imageRequirement,undefined);
     const no=planImageCoverage(d,{instructions:'No photographs please.'});assert.equal(no.imageCoveragePlan.target,0);assert.ok(!no.slides.some(s=>s.visualRequirement.kind==='photo'));
-    const reserved=planImageCoverage(d,{designPreferences:{noImageSlideNumbers:[8]}});assert.equal(reserved.slides[7].visualRequirement.kind,'none');assert.equal(reserved.imageCoveragePlan.target,7);
+    const reserved=planImageCoverage(d,{designPreferences:{noImageSlideNumbers:[8]}});assert.equal(reserved.slides[7].visualRequirement.kind,'none');assert.equal(reserved.imageCoveragePlan.target,5);
 });
 test('art direction records audience, message, focal point and synthetic disclosure',()=>{
     const sample=imagerySamples[0],b=imageBrief(sample.presentation,sample.presentation.slides[0],theme,{audience:'Clinicians'}),prompt=generationPrompt(b);

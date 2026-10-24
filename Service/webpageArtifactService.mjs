@@ -4,11 +4,15 @@ import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { validateStaticWebsite } from './webpageStaticValidator.mjs';
 import {generateIndependent} from './ai/concurrency.mjs';
+import {storageRoot} from './storageRoot.mjs';
+import {validateImageBytes,imageDiagnostic} from './visual/imageAssetService.mjs';
 
-export const WEBPAGE_ROOT = path.resolve(process.env.LEDIFY_WEBPAGE_ROOT || 'generated/webpages');
+export const WEBPAGE_ROOT = path.resolve(process.env.LEDIFY_WEBPAGE_ROOT || storageRoot('webpages'));
 export const tokenHash = token => createHash('sha256').update(token).digest('hex');
 export async function webpageArtifactService(files, options = {}) {
     const validation = validateStaticWebsite(files);
+    const imageHashes={};
+    for(const [name,buffer] of Object.entries(files).filter(([name])=>/\.(?:png|jpe?g|webp)$/.test(name))){await validateImageBytes(buffer);imageHashes[name]=createHash('sha256').update(buffer).digest('hex');}
     const root = path.resolve(options.root || WEBPAGE_ROOT);
     const id = randomUUID(), token = randomBytes(32).toString('hex');
     const directory = path.join(root, id), siteDirectory = path.join(directory, 'site');
@@ -23,6 +27,7 @@ export async function webpageArtifactService(files, options = {}) {
             await fs.writeFile(destination, content, { flag: 'wx' });
         },()=>{});
         stages.site = 'completed';
+        for(const [name,hash] of Object.entries(imageHashes))if(createHash('sha256').update(await fs.readFile(path.join(siteDirectory,name))).digest('hex')!==hash)throw new Error('Image storage checksum mismatch');
         try {
             const zip = new JSZip();
             const folder = zip.folder('my-website');
@@ -32,6 +37,8 @@ export async function webpageArtifactService(files, options = {}) {
             const readme = 'Extract this ZIP, then double-click my-website/index.html. No installation or server is needed. All essential assets are bundled. External project/contact links work when a suitable application or internet connection is available. This is a static site: it has no account, payment, reservation, or submission backend.\n';
             folder.file('README.txt', readme);
             const archive = await (options.buildZip || (zip => zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })))(zip);
+            const verified=await JSZip.loadAsync(archive,{checkCRC32:true});
+            for(const [name,hash] of Object.entries(imageHashes))if(!verified.file('my-website/'+name)||createHash('sha256').update(await verified.file('my-website/'+name).async('nodebuffer')).digest('hex')!==hash)throw new Error('ZIP image checksum mismatch');
             await fs.writeFile(path.join(directory, 'website.zip'), archive, { flag: 'wx' });
             stages.zip = 'completed';
             downloadUrl = `/api/webpages/${id}/${token}/download`;
@@ -39,8 +46,9 @@ export async function webpageArtifactService(files, options = {}) {
             stages.zip = 'failed';
             warnings.push({ code: 'WEBPAGE_ZIP_FAILED', message: 'The preview is available, but ZIP packaging failed.' });
         }
-        await fs.writeFile(path.join(directory, 'metadata.json'), JSON.stringify({ id, tokenHash: tokenHash(token), allowedFiles: validation.files,
+        await fs.writeFile(path.join(directory, 'metadata.json'), JSON.stringify({ id, tokenHash: tokenHash(token), allowedFiles: validation.files,imageHashes,
             downloadable: stages.zip === 'completed', createdAt: new Date().toISOString() }), { flag: 'wx' });
+        imageDiagnostic({generationType:'webpage',provider:'artifact-store',status:stages.zip==='completed'?'verified':'incomplete',succeeded:Object.keys(imageHashes).length,storage:'saved',validation:stages.zip==='completed'?'passed':'export-failed'});
         return { id, status: stages.zip === 'completed' ? 'completed' : 'partial_success', stages, warnings,
             previewUrl: `/api/webpages/${id}/${token}/preview`, siteUrl: `/api/webpages/${id}/${token}/site/index.html`, downloadUrl,
             embed: { sandbox: 'allow-scripts', referrerPolicy: 'no-referrer' }, viewports: { desktop: 1280, tablet: 768, mobile: 390 },

@@ -11,6 +11,8 @@ import {createImageAssetSession} from './presentationImageAssets.mjs';
 import {imagePolicy} from './imagePolicy.mjs';
 import {planImageCoverage,imageCoverage,photoSignature,requiresAuthenticPhotography} from './imageArtDirection.mjs';
 import {generateIndependent,generationConcurrency} from '../ai/concurrency.mjs';
+import {imageDiagnostic} from './imageAssetService.mjs';
+import {storageRoot} from '../storageRoot.mjs';
 
 export function imageDimensions(buffer) {
     if (!Buffer.isBuffer(buffer) || buffer.length > 12 * 1024 * 1024) throw new Error('Image exceeds the byte limit');
@@ -98,14 +100,14 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
             slide.visualRequirement={role:slide.slideType==='title'?'background':'foreground',kind:'photo',required:true,description:asset.description,altText:asset.description,searchQuery:asset.description};
         }
     }
-    const theme=deriveVisualTheme(presentation,context),root=path.resolve(options.cacheRoot || 'generated/visual-assets');
+    if(options.userAssets?.length)presentation=planImageCoverage(presentation,context);
+    const theme=deriveVisualTheme(presentation,context),root=path.resolve(options.cacheRoot || storageRoot('visual-assets'));
     const providers=options.providers || configuredImageProviders(),warnings=[],slides=[];
     const policy={...imagePolicy(),...options.policy,...(options.providerTimeoutMs?{timeoutMs:options.providerTimeoutMs}:{})};
     const session=options.prefetch?.session||createImageAssetSession({providers,policy,root,external:options.external!==false,userAssets:options.userAssets||[],onDiagnostic:options.onImageDiagnostic||(({reason,...safe})=>console.info('[IMAGE]',JSON.stringify(safe)))});
     const strict=options.allowIncompleteImages===false||options.allowIncompleteImages!==true&&policy.failureMode==='strict';
     presentation.imageCoveragePlan.enforcement=strict?'strict':'best-effort';
-    if(!strict)presentation.imageCoveragePlan.required=false;
-    const requested=presentation.slides.filter(s=>s.imageRequirement?.required);
+    const requested=presentation.slides.filter(s=>s.imageRequirement);
     const assets=await Promise.all(requested.map(async s=>{
         const early=options.prefetch?.entries.get(s.slideNumber);
         if(early?.signature===photoSignature(s))return early.promise;
@@ -117,7 +119,7 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
     const missing=requested.filter(s=>!([photos.get(s.slideNumber)].flat().some(Boolean))).map(s=>s.slideNumber);
     if(missing.length&&!strict)warnings.push({code:'PRESENTATION_IMAGES_UNAVAILABLE',stage:'presentation-images',message:'Some requested images were unavailable. The presentation is delivered with readable content and any images that succeeded. Missing images have not been replaced with placeholders or unrelated pictures.',missingSlides:missing,
         imageFailures:session.diagnostics.filter(d=>d.status!=='resolved').map(({slideNumber,method,status,attempt,reasonCode})=>({slideNumber,method,status,attempt,reasonCode}))});
-    if(presentation.imageCoveragePlan.required&&missing.length)throw Object.assign(new Error(requiresAuthenticPhotography(context)&&!requested.some(s=>s.imageRequirement.conceptImage)?'Required authentic photographs could not be resolved. AI image generation is disabled for this request. Check licensed-photo provider network access and search availability, configure PEXELS_API_KEY for an additional photo source, or supply authorized destination photographs.': 'Required presentation pictures could not be resolved. Configure PRESENTATION_ALLOW_IMAGE_GENERATION=true, an accessible GOOGLE_IMAGE_MODEL, sufficient PRESENTATION_MAX_GENERATED_IMAGES/PRESENTATION_MAX_IMAGES and estimated cost budget, or an authorized licensed-image provider. Check provider quota and network access; explicitly request text-only to omit pictures.'),{
+    if(strict&&missing.some(n=>presentation.imageCoveragePlan.requiredSlideNumbers.includes(n)))throw Object.assign(new Error(requiresAuthenticPhotography(context)&&!requested.some(s=>s.imageRequirement.conceptImage)?'Required authentic photographs could not be resolved. AI image generation is disabled for this request. Check licensed-photo provider network access and search availability, configure PEXELS_API_KEY for an additional photo source, or supply authorized destination photographs.': 'Required presentation pictures could not be resolved. Configure PRESENTATION_ALLOW_IMAGE_GENERATION=true, an accessible GOOGLE_IMAGE_MODEL, sufficient PRESENTATION_MAX_GENERATED_IMAGES/PRESENTATION_MAX_IMAGES and estimated cost budget, or an authorized licensed-image provider. Check provider quota and network access; explicitly request text-only to omit pictures.'),{
         code:'PRESENTATION_IMAGES_UNAVAILABLE',stage:'presentation-images',missingSlides:missing,imageDiagnostics:session.diagnostics,imageBudget:session.budget.report()
     });
     // Plain typographic compositions are intentional. Never manufacture a decorative
@@ -212,7 +214,9 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
     }
     const result={...presentation,slides,visualTheme:{family:theme.family,style:theme.style},warnings:[...(presentation.warnings||[]),...warnings]};
     result.visualQuality=imageCoverage(result,session.diagnostics,session.budget.report());
-    if(result.imageCoveragePlan.required&&!result.visualQuality.meetsTarget)throw Object.assign(new Error('Required pictures did not fit alongside the approved slide content. No image-free presentation was published. Shorten the content or retry generation so it can be replanned.'),{code:'PRESENTATION_IMAGE_LAYOUT_FAILED',stage:'visual-layout-validation',missingSlides:result.visualQuality.missingAssets});
+    if(strict&&!result.visualQuality.requiredComplete)throw Object.assign(new Error('Required pictures did not fit alongside the approved slide content. No image-free presentation was published. Shorten the content or retry generation so it can be replanned.'),{code:'PRESENTATION_IMAGE_LAYOUT_FAILED',stage:'visual-layout-validation',missingSlides:result.visualQuality.missingAssets});
+    result.imageValidation={status:result.visualQuality.requiredComplete?'passed':'incomplete',requiredMissing:result.visualQuality.missingAssets};
+    imageDiagnostic({generationType:'presentation',provider:'pipeline',status:result.imageValidation.status,requested:requested.length,succeeded:result.visualQuality.actual,failed:requested.length-result.visualQuality.actual,requiredMissing:result.visualQuality.missingAssets.length,retryCount:session.diagnostics.filter(d=>d.attempt>1).length,storage:'saved',validation:result.imageValidation.status});
     if(!result.visualQuality.meetsTarget)result.warnings.push({code:'IMAGE_COVERAGE_BELOW_TARGET',stage:'visual-resolution',message:`Resolved meaningful photos/illustrations on ${result.visualQuality.actual} slides; target ${result.visualQuality.target}. Charts and diagrams are reported separately.`});
     return result;
 }

@@ -37,7 +37,7 @@ test('failed image attempts rejoin behind the remaining slides instead of holdin
     let started,release;const entered=new Promise(r=>{started=r;}),gate=new Promise(r=>{release=r;}),calls=[];
     const session=createImageAssetSession({root,policy:{...imagePolicy({}),concurrency:1,retries:1},providers:{search:async brief=>{
         calls.push([brief.slideNumber,brief.attempt]);
-        if(brief.slideNumber===1&&brief.attempt===0){started();await gate;throw new Error('Temporary image failure');}
+        if(brief.slideNumber===1&&brief.attempt===0){started();await gate;throw Object.assign(new Error('Temporary image failure'),{code:'ECONNRESET'});}
         return null;
     }}});
     const presentation={title:'Travel',slides:Array.from({length:12},(_,i)=>({...deck.slides[0],slideNumber:i+1}))};

@@ -87,8 +87,8 @@ test('the existing text endpoint opts into HTTP 202 without changing synchronous
 test('approved-slide image work overlaps drafting and the final renderer reuses one session without duplicate provider calls',async t=>{
     const directory=await root(t),source=await fs.readFile('assets/webpage/curated/laboratory.jpg');let calls=0,release;
     const gate=new Promise(r=>{release=r;}),deck={outputType:'presentation',strategyId:'academic-seminar',title:'Source review',subtitle:'A concise explanation',slides:[
-        {slideNumber:1,slideType:'title',title:'Source review',content:{titleContent:{title:'Source review',subtitle:'A concise explanation',supportingText:'Preserve the evidence'}}},
-        {slideNumber:2,slideType:'focused-explanation',title:'Evaluate evidence',imageLayoutPlanned:true}
+        {slideNumber:1,slideType:'title',title:'Source review',visualRequirement:{kind:'photo',required:true,description:'Laboratory',searchQuery:'Laboratory'},content:{titleContent:{title:'Source review',subtitle:'A concise explanation',supportingText:'Preserve the evidence'}}},
+        {slideNumber:2,slideType:'focused-explanation',title:'Evaluate evidence',visualRequirement:{kind:'photo',required:true,description:'Research',searchQuery:'Research'},imageLayoutPlanned:true}
     ]};
     const options={cacheRoot:directory,onImageDiagnostic:()=>{},diagramPlanner:false,policy:{concurrency:2,retries:0},providers:{search:async brief=>{calls++;await gate;return {buffer:await sharp(source).modulate({brightness:.7+brief.slideNumber*.1}).jpeg().toBuffer(),source:'Public-domain fixture',creator:'CDC',license:'Public domain',generationMethod:'licensed-search'};}}};
     const early=presentationPrefetch({inputType:'prompt',input:'Explain source review',context:{},options});early.update(deck);
@@ -101,7 +101,7 @@ test('approved-slide image work overlaps drafting and the final renderer reuses 
 });
 test('prefetch cancellation aborts active providers and starts no queued paid work',async t=>{
     const directory=await root(t);let calls=0;
-    const deck={strategyId:'academic-seminar',title:'Source review',slides:[1,2].map(slideNumber=>({slideNumber,slideType:'focused-explanation',title:'Evidence '+slideNumber,content:{textContent:{heading:'Evidence',body:'Review the source.'}}}))};
+    const deck={strategyId:'academic-seminar',title:'Source review',slides:[1,2].map(slideNumber=>({slideNumber,slideType:'focused-explanation',title:'Evidence '+slideNumber,visualRequirement:{kind:'photo',required:true,description:'Research',searchQuery:'Research'},content:{textContent:{heading:'Evidence',body:'Review the source.'}}}))};
     const early=presentationPrefetch({inputType:'prompt',input:'Review sources',context:{},options:{cacheRoot:directory,policy:{concurrency:1,retries:1},onImageDiagnostic:()=>{},providers:{search:({signal})=>{calls++;return new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(new Error('aborted')),{once:true}));}}}});
     early.update(deck);await until(()=>calls===1);early.cancel();
     await Promise.all([...early.entries.values()].map(entry=>entry.promise));assert.equal(calls,1);

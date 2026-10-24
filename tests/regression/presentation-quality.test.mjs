@@ -88,7 +88,7 @@ test('unavailable or unsuitable providers fall back with truthful visual warning
     let calls=0;const deck=base();deck.slides[0].visualRequirement={role:'background',kind:'photo',required:false,description:'A calm editorial background',searchQuery:'architecture',altText:''};
     deck.slides[1]={slideNumber:2,slideType:'text-visual',title:'Unavailable product image',content:{visualContent:structuredClone(fixtures.visualContent)}};
     const visual=await resolvePresentationVisuals(ready(deck),{}, {allowIncompleteImages:true,cacheRoot:await temp(t),providers:{search:async()=>{calls++;throw new Error('Unavailable');},generate:async()=>{calls++;return null;}}});
-    assert.equal(calls,4);assert.equal(visual.visualQuality.budget.attempts,0);assert.ok(visual.warnings.some(w=>w.code==='IMAGE_PROVIDER_FALLBACK'));assert.ok(visual.warnings.some(w=>w.code==='VISUAL_UNRESOLVED'));
+    assert.equal(calls,1);assert.equal(visual.visualQuality.budget.attempts,0);assert.ok(visual.warnings.some(w=>w.code==='IMAGE_PROVIDER_FALLBACK'));assert.ok(visual.warnings.some(w=>w.code==='VISUAL_UNRESOLVED'));
     assert.equal(visual.slides[1].layoutId,'text-visual-text-fallback');
     assert.equal(visual.slides[0].backgroundAsset,undefined);
     assert.equal(visual.slides[0].coverArtwork,undefined);

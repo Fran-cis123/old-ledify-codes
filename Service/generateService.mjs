@@ -75,16 +75,17 @@ const generate = async (
         if(context.designPreferences?.heroComposition)normalized.designSpec.heroComposition=context.designPreferences.heroComposition;
         const designed=await measureStage('website-design',()=>planWebpageDesign(normalized,context));
         designed.websiteBrief=compileWebsiteBrief(designed,input,context);
-        const resolved = await measureStage('website-images',()=>acquireWebsiteImages(webpageThemeService(designed, context), context, options.webpageAssets));
+        const resolved = await measureStage('website-images',()=>acquireWebsiteImages(webpageThemeService(designed, context), {...context,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')}, options.webpageAssets));
         const page = resolved.page;
         const rendered=await measureStage('website-html-css-js',()=>webpageRenderer(page,resolved.assets));
         const inspected = await measureStage('website-validation',()=>inspectWebsite(rendered,options.webpageQuality));
         page.quality={...page.quality,validation:inspected.report};
         page.websiteSpecification=websiteSpecification(page);
         const artifacts = await measureStage('website-packaging',()=>webpageArtifactService(inspected.files, options.artifacts));
+        if(artifacts.status!=='completed'&&page.imageStrategy.plan.some(p=>p.required))page.imageValidation={...page.imageValidation,status:'incomplete',export:'failed'};
         timings.renderMs=Math.round(performance.now()-artifactStarted);
         const needsReview=page.contentSpecification?.missingInformation.length||resolved.warnings.length||inspected.warnings.length||inspected.report.browser!=='passed';
-        return finish({ ...aiResult, generatedContent: page, status: artifacts.status==='completed'&&needsReview?'completed_with_warnings':artifacts.status, artifacts,
+        return finish({ ...aiResult, generatedContent: page,imageValidation:page.imageValidation, status: page.imageValidation?.status==='incomplete'?'incomplete':artifacts.status==='completed'&&needsReview?'completed_with_warnings':artifacts.status, artifacts,
             warnings: [...(page.warnings || []),...(page.limitations || []).map(message => ({ code: 'STATIC_SCOPE_LIMITATION', message })), ...resolved.warnings, ...inspected.warnings, ...artifacts.warnings] });
     }
     if (outputType === 'document') {
@@ -211,10 +212,12 @@ const generate = async (
         timings.visualsMs=Math.round(performance.now()-visualStarted);
         const renderStarted=performance.now();
 
+        const incomplete=rendererReadyPresentation.imageValidation?.status==='incomplete';
         const preview =
             await previewRenderer(
-                rendererReadyPresentation, options.preview
+                incomplete?{...rendererReadyPresentation,imageCoveragePlan:{...rendererReadyPresentation.imageCoveragePlan,required:false}}:rendererReadyPresentation, options.preview
             );
+        const imageValidation=rendererReadyPresentation.imageCoveragePlan.required&&(preview.stages.pdf!=='completed'||preview.stages.png!=='completed')?{...rendererReadyPresentation.imageValidation,status:'incomplete',rendering:'unverified'}:rendererReadyPresentation.imageValidation;
 
 
         // =================================================
@@ -225,7 +228,8 @@ const generate = async (
         return finish({
 
             ...aiResult,
-            status: preview.status === 'completed' && rendererReadyPresentation.warnings.length ? 'completed_with_warnings' : preview.status,
+            status: imageValidation?.status==='incomplete'?'incomplete':preview.status === 'completed' && rendererReadyPresentation.warnings.length ? 'completed_with_warnings' : preview.status,
+            imageValidation,
             warnings: [...rendererReadyPresentation.warnings, ...preview.warnings],
 
             resolvedContext,

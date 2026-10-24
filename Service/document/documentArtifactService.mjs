@@ -4,7 +4,8 @@ import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { renderDocumentDocx, validateDocxArtifact, documentStyle } from '../../renderer/document/docxRenderer.mjs';
 import { renderDocumentPreview } from '../../renderer/document/documentPreview.mjs';
 import {measureStage} from '../performance.mjs';
-export const DOCUMENT_ROOT=path.resolve('generated/documents');
+import {storageRoot} from '../storageRoot.mjs';
+export const DOCUMENT_ROOT=path.resolve(process.env.LEDIFY_DOCUMENT_ROOT||storageRoot('documents'));
 export const documentTokenHash=token=>createHash('sha256').update(token).digest('hex');
 export async function documentArtifactService(document,context={},options={}) {
     const id=randomUUID(),token=randomBytes(32).toString('hex'),root=path.resolve(options.root||DOCUMENT_ROOT),directory=path.join(root,id);

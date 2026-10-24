@@ -16,7 +16,7 @@ import { imageSlideSchema, contentBudgetPrompt } from './ai/presentationContentB
 import { AiGenerationError } from './ai/responseValidation.mjs';
 import { validateQuantitativeGrounding } from './ai/sourceGrounding.mjs';
 import { repairPresentationValidation } from './ai/presentationValidation.mjs';
-import {photoCompositionFor,wantsTextOnly} from './visual/imageArtDirection.mjs';
+import {photoCompositionFor,wantsTextOnly,planImageCoverage} from './visual/imageArtDirection.mjs';
 import {
     GoogleGenAI,
     Type
@@ -1363,7 +1363,8 @@ let generatedContent = isPresentation && options.initialPresentation ? structure
 });
 if (isPresentation) {
     plannedSlides=generatedContent.slides.map(({slideNumber,title,objective})=>({slideNumber,title,objective}));
-    for(const slide of generatedContent.slides)slide.imageLayoutPlanned=!wantsTextOnly({...context,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')})&&!context.designPreferences?.noImageSlideNumbers?.includes(slide.slideNumber);
+    const plannedPictures=planImageCoverage(generatedContent,{...context,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')});
+    for(const slide of generatedContent.slides)slide.imageLayoutPlanned=!!plannedPictures.slides.find(s=>s.slideNumber===slide.slideNumber)?.imageRequirement;
     canonicalTitles(generatedContent);
     const contentProperties = outputSchema.properties.slides.items.properties.content.properties;
     contentProperties.visualContent.properties.visual.properties.diagram = diagramSchema;
@@ -1380,7 +1381,8 @@ if (isPresentation) {
     await options.onSlideCheckpoint?.(generatedContent);
     const generateSlide = async (slide, repairInstruction = '') => {
         const contentKey = SLIDE_TYPE_CONTENT_MAP[slide.slideType];
-        const usesImage=!wantsTextOnly({...context,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')})&&!context.designPreferences?.noImageSlideNumbers?.includes(slide.slideNumber);
+        const imageContext={...context,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')};
+        const usesImage=!!planImageCoverage({slides:[slide]},imageContext).slides[0].imageRequirement;
         const baseSlideSchema = {
             type: Type.OBJECT,
             properties: { [contentKey]: contentProperties[contentKey] },
@@ -1403,7 +1405,7 @@ if (isPresentation) {
             },
             request: {
                 model: process.env.GEMINI_SLIDE_MODEL || 'gemini-3.5-flash',
-                contents: buildSlidePrompt(input, context, generatedContent, slide, previous) + contentBudgetPrompt(slideSchema) + (repairInstruction ? `\nTargeted quality repair; preserve all correct content and the same canonical structure:\n${repairInstruction}` : ''),
+                contents: buildSlidePrompt(input, context, generatedContent, slide, previous,usesImage) + contentBudgetPrompt(slideSchema) + (repairInstruction ? `\nTargeted quality repair; preserve all correct content and the same canonical structure:\n${repairInstruction}` : ''),
                 config: { responseMimeType: 'application/json', responseJsonSchema: slideSchema,
                     maxOutputTokens: 4096 }
             }

@@ -7,6 +7,7 @@ import {imageBrief} from './imageArtDirection.mjs';
 import {PHOTO_FRAMES} from '../../renderer/presentation/photoCompositions.mjs';
 import {imageSpecificationSchema} from '../../templates/presentation/visualSchemas.mjs';
 import {validateSchema} from '../ai/responseValidation.mjs';
+import {storeImageAsset,atomicImageJson,classifyImageError,imageBackoff,imageDiagnostic} from './imageAssetService.mjs';
 
 export async function normalizePhoto(asset,brief,root,policy){
     if(!asset?.source||!asset.creator||!asset.license||(asset.attributionRequired&&!asset.attribution))throw new Error('Incomplete image usage rights or provenance');
@@ -24,7 +25,7 @@ export async function normalizePhoto(asset,brief,root,policy){
     if(cropW/frame.w<90||cropH/frame.h<90)throw new Error('Source resolution is insufficient after the requested crop');
     const buffer=await sharp(oriented).extract({left,top,width:cropW,height:cropH}).resize({width:2400,height:1800,fit:'inside',withoutEnlargement:true}).jpeg({quality:policy.quality,mozjpeg:true}).toBuffer();
     const dimensions=await sharp(buffer).metadata(),id=createHash('sha256').update(buffer).digest('hex');
-    await fs.mkdir(root,{recursive:true});const filePath=path.join(root,id+'.jpg');await fs.writeFile(filePath,buffer);
+    const stored=await storeImageAsset(buffer,{root}),filePath=stored.filePath;
     const {buffer:unused,...metadata}=asset;
     return {...metadata,id,sourceChecksum:createHash('sha256').update(asset.buffer).digest('hex'),filePath,data:'image/jpeg;base64,'+buffer.toString('base64'),kind:'photo',role:'foreground',status:'resolved',
         sourceType:asset.sourceType||(asset.generationMethod==='ai-generated'?'ai-generated':'licensed-stock'),
@@ -37,9 +38,9 @@ export async function normalizePhoto(asset,brief,root,policy){
 
 // One deck-scoped session: global provider concurrency, generation budget and duplicate detection.
 export function createImageAssetSession({providers={},policy=imagePolicy(),root,external=true,userAssets=[],onDiagnostic}){
-    const budget=generationBudget(policy),diagnostics=[],used=new Set(),usedSources=new Set();let active=0;const waiting=[];
+    const budget=generationBudget(policy),diagnostics=[],used=new Set(),usedSources=new Set(),disabled=new Set();let active=0;const waiting=[];
     const deadline=Date.now()+(policy.deadlineMs||45000);
-    const record=entry=>{diagnostics.push(entry);onDiagnostic?.(entry);};
+    const record=entry=>{diagnostics.push(entry);onDiagnostic?.(entry);imageDiagnostic({generationType:'presentation',provider:entry.method||'planner',...entry});};
     const limited=async fn=>{if(active>=policy.concurrency)await new Promise(r=>waiting.push(r));else active++;try{return await fn();}finally{const next=waiting.shift();if(next)next();else active--;}};
     let selected=0,cancelled=false;const controllers=new Set();
     return {diagnostics,budget,
@@ -66,7 +67,7 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                     if(method==='search'&&providers.validateSearchAsset&&!providers.validateSearchAsset(brief,meta))throw new Error('Cached photograph does not match the requested subject');
                     if(brief.authenticPhotoOnly&&(meta.generationMethod==='ai-generated'||meta.synthetic||meta.mediaKind&&meta.mediaKind!=='photograph'))throw new Error('Cached asset is not an authentic photograph');
                     if(Date.now()-meta.cachedAt<policy.cacheDays*86400000){
-                        const filePath=path.join(root,meta.id+'.jpg'),buffer=await fs.readFile(filePath);
+                        const filePath=path.join(root,meta.id+'.jpeg'),buffer=await fs.readFile(filePath);
                         if(createHash('sha256').update(buffer).digest('hex')!==meta.id)throw new Error('Cache checksum failed');
                         await sharp(buffer,{limitInputPixels:32000000}).stats();
                         if(!usedSources.has(meta.sourceChecksum)&&!used.has(meta.id)){used.add(meta.id);usedSources.add(meta.sourceChecksum);record({slideNumber:slide.slideNumber,method,status:'resolved',cacheHit:true,model:meta.model});return {...meta,filePath,data:'image/jpeg;base64,'+buffer.toString('base64'),cacheHit:true};}
@@ -77,6 +78,7 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                     // A slot covers one attempt, not a slide's entire retry
                     // chain. Failed attempts rejoin behind waiting slides.
                     const outcome=await limited(async()=>{
+                        if(disabled.has(method))return {stop:true};
                         if(cancelled||Date.now()>=deadline){record({slideNumber:slide.slideNumber,status:'skipped',reasonCode:cancelled?'CANCELLED':'DECK_DEADLINE_REACHED',reason:cancelled?'Deck image acquisition cancelled':'Deck image deadline reached'});return {stop:true};}
                             if(deadline-Date.now()<Math.min(1000,policy.timeoutMs/10)){record({slideNumber:slide.slideNumber,method,status:'skipped',reasonCode:'INSUFFICIENT_IMAGE_TIME'});return {stop:true};}
                         if(method==='generate'&&deadline-Date.now()<Math.min(10000,policy.timeoutMs/2)){record({slideNumber:slide.slideNumber,method,status:'skipped',reasonCode:'INSUFFICIENT_GENERATION_TIME'});return {stop:true};}
@@ -95,13 +97,14 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                             const asset=await normalizePhoto(candidate,brief,root,policy);
                             if(used.has(asset.id))throw new Error('Duplicate image in presentation');
                             used.add(asset.id);usedSources.add(asset.sourceChecksum);
-                            if(method!=='user'){const {data,filePath,...meta}=asset;await fs.writeFile(cachePath,JSON.stringify({...meta,cachedAt:Date.now()}));}
-                            record({slideNumber:slide.slideNumber,method,status:'resolved',attempt:attempt+1,model:asset.model,elapsedMs:Date.now()-started});return {asset};
-                        }catch(error){if(reservation)usedSources.delete(reservation);record({slideNumber:slide.slideNumber,method,status:'failed',attempt:attempt+1,reasonCode:['PHOTO_PROVIDER_RATE_LIMITED','SOURCE_URL_RATE_LIMITED'].includes(error.code)?'PROVIDER_RATE_LIMITED':error.code==='PHOTO_SEARCH_API_ERROR'?'PROVIDER_SEARCH_FAILED':/timed? ?out|timeout|abort/i.test(error.message)?'PROVIDER_TIMEOUT':/fetch failed|network|ENOTFOUND|ECONN/i.test(error.message)?'PROVIDER_NETWORK_ERROR':/authentic photography/i.test(error.message)?'AUTHENTIC_PHOTO_REQUIRED':'IMAGE_PROVIDER_OR_VALIDATION_FAILED',reason:error.message.replace(/https?:\/\/\S+/g,'[provider URL]').slice(0,180),elapsedMs:Date.now()-started});return {stop:error.code==='PHOTO_PROVIDER_RATE_LIMITED'};}
+                            if(method!=='user'){const {data,filePath,...meta}=asset;try{await atomicImageJson(cachePath,{...meta,cachedAt:Date.now()});}catch{record({slideNumber:slide.slideNumber,method,status:'cache-unavailable',reasonCode:'IMAGE_CACHE_STORAGE_FAILED'});}}
+                            record({slideNumber:slide.slideNumber,method,status:'resolved',attempt:attempt+1,model:asset.model,storage:'saved',validation:'passed',elapsedMs:Date.now()-started});return {asset};
+                        }catch(error){if(reservation)usedSources.delete(reservation);const info=classifyImageError(error);if(['IMAGE_INVALID_CREDENTIALS','IMAGE_ACCESS_DENIED','IMAGE_MODEL_UNAVAILABLE','IMAGE_REQUEST_REJECTED'].includes(info.reasonCode))disabled.add(method);record({slideNumber:slide.slideNumber,method,status:'failed',attempt:attempt+1,...info,elapsedMs:Date.now()-started});return {stop:!info.retryable||error.code==='PHOTO_PROVIDER_RATE_LIMITED',retryError:error};}
                         finally{clearTimeout(timer);controller.abort();controllers.delete(controller);}
                     });
                     if(outcome.asset)return outcome.asset;
                     if(outcome.stop)break;
+                    if(attempt<policy.retries&&!await imageBackoff(outcome.retryError,attempt,{remainingMs:deadline-Date.now()}))break;
                 }
             }
             return null;

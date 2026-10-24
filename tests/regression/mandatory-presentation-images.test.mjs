@@ -31,7 +31,7 @@ test('the actual failed ten-slide user PPTX with zero pictures fails the mandato
 });
 test('missing providers fail clearly; an explicit text-only request succeeds without generated pictures',async t=>{
     const deck=ready(structuredClone(imagerySamples[4].presentation));
-    await assert.rejects(resolvePresentationVisuals(deck,{}, {allowIncompleteImages:false,providers:{},cacheRoot:await temporary(t),diagramPlanner:false}),error=>error.code==='PRESENTATION_IMAGES_UNAVAILABLE'&&error.missingSlides.length===8);
+    await assert.rejects(resolvePresentationVisuals(deck,{}, {allowIncompleteImages:false,providers:{},cacheRoot:await temporary(t),diagramPlanner:false}),error=>error.code==='PRESENTATION_IMAGES_UNAVAILABLE'&&error.missingSlides.length===6);
     const text=await resolvePresentationVisuals(deck,{instructions:'Create a text-only presentation.'},{providers:{},cacheRoot:await temporary(t),diagramPlanner:false});
     assert.equal(text.imageCoveragePlan.required,false);assert.equal(text.imageCoveragePlan.target,0);assert.ok(text.slides.every(s=>!s.photoAsset));
 });
@@ -39,7 +39,7 @@ test('charts, tables and relationship diagrams retain editable content beside di
     const root=await temporary(t),sample=structuredClone(imagerySamples[4].presentation);
     sample.slides=[sample.slides[0],{slideNumber:2,slideType:'data-chart',title:'Illustrative comparison',content:{chart:structuredClone(fixtures.chart)}},{slideNumber:3,slideType:'table',title:'Structured comparison',content:{table:structuredClone(fixtures.table)}},{...sample.slides[6],slideNumber:4}];
     const buffer=await fs.readFile('assets/webpage/curated/laboratory.jpg');let calls=0;
-    const resolved=await resolvePresentationVisuals(ready(sample),{}, {cacheRoot:root,diagramPlanner:false,providers:{search:async()=>({buffer:await sharp(buffer).modulate({brightness:.6+(calls++)*.12}).jpeg().toBuffer(),source:'CDC test fixture',creator:'James Gathany',license:'Public domain',generationMethod:'licensed-search'})},policy:{retries:0}});
+    const resolved=await resolvePresentationVisuals(ready(sample),{instructions:'Every slide must include a photograph.'}, {cacheRoot:root,diagramPlanner:false,providers:{search:async()=>({buffer:await sharp(buffer).modulate({brightness:.6+(calls++)*.12}).jpeg().toBuffer(),source:'CDC test fixture',creator:'James Gathany',license:'Public domain',generationMethod:'licensed-search'})},policy:{retries:0}});
     assert.equal(resolved.visualQuality.actual,4);assert.equal(resolved.visualQuality.meetsTarget,true);assert.equal(new Set(resolved.slides.map(s=>s.photoAsset.id)).size,4);
     const output=await generatePresentationBuffer(resolved),file=path.join(root,'deck.pptx');await fs.writeFile(file,output.buffer);
     const report=await validateRenderedPptx(file,resolved);assert.equal(report.slidesWithPictures,4);assert.equal(report.embeddedImages,4);assert.ok(report.slides.every(s=>s.embeddedPictures>=1));
@@ -53,5 +53,5 @@ for(const inputType of ['prompt','url','file'])test(`${inputType} generation han
     const root=await temporary(t),handlers=createGenerationHandlers({model:{create:async item=>({...item,save:async()=>{}})},extractFile:async()=> 'Laboratory research',extractUrl:async()=> 'Laboratory research',generator:async()=>resolvePresentationVisuals(ready(structuredClone(imagerySamples[4].presentation)),{}, {allowIncompleteImages:false,providers:{},cacheRoot:root})});
     const req={body:{outputType:'presentation',textPrompt:'Explain laboratory research',urlPrompt:'https://example.org/research'},file:inputType==='file'?{buffer:pdf,originalname:'source.pdf',mimetype:'application/pdf'}:undefined};
     await ({prompt:handlers.userText,url:handlers.userUrl,file:handlers.userFile}[inputType])(req,{status(code){status=code;return this;},json(value){body=value;return value;}});
-    assert.equal(status,503);assert.equal(body.errorCode,'PRESENTATION_IMAGES_UNAVAILABLE');assert.equal(body.missingSlides.length,8);assert.match(body.error,/GOOGLE_IMAGE_MODEL/);
+    assert.equal(status,503);assert.equal(body.errorCode,'PRESENTATION_IMAGES_UNAVAILABLE');assert.equal(body.missingSlides.length,6);assert.match(body.error,/GOOGLE_IMAGE_MODEL/);
 });

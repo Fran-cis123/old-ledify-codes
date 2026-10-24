@@ -53,12 +53,13 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
             result = addPresentationPublicUrls(result,req);
             for(const key of ['context','resolvedContext']) result[key]=compactOptionalContext(result[key]);
             if(result.generatedContent?.inferredContext) result.generatedContent.inferredContext=compactOptionalContext(result.generatedContent.inferredContext);
-            record.status = 'completed'; record.generatedContent = result.generatedContent;
+            record.status = result.status==='incomplete'?'failed':'completed'; record.generatedContent = result.generatedContent;
             if (result.artifacts || result.preview) record.artifacts = result.artifacts || result.preview;
             await measureStage('database-save',()=>record.save());
             const legacy=req.get?.('X-Ledify-Response-Version')==='1';
             const request=legacy?(record.toObject?.() || {...record}):Object.fromEntries(['_id','inputType','outputType','status','createdAt','updatedAt'].filter(k=>record[k]!=null).map(k=>[k,record[k]]));
             const status=result.status || 'completed';
+            if(status==='incomplete')return res.status(422).json({message:'Generation is incomplete: required images could not be verified',errorCode:'IMAGE_REQUIREMENTS_UNMET',stage:'image-validation',data:{responseVersion:2,request:publicGenerationResult(request),result}});
             res.set?.('X-Ledify-Response-Version',legacy?'1':'2');
             if(result.timings) {
                 const entries=Object.entries(result.timings).filter(([name,duration])=>/^[a-z]+Ms$/i.test(name)&&Number.isFinite(duration)&&duration>=0);

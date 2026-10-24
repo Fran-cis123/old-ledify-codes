@@ -3,10 +3,11 @@ import path from 'node:path';
 import {randomBytes,randomUUID,createHash,timingSafeEqual} from 'node:crypto';
 import {profileGeneration} from './performance.mjs';
 import {publicGenerationResult} from './publicGenerationResult.mjs';
+import {storageRoot} from './storageRoot.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const queues=new Map();
-export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT||'generated/jobs',maxPending=8,onError}={}){
+export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT||storageRoot('jobs'),maxPending=8,onError}={}){
     root=path.resolve(root);
     if(queues.has(root))return queues.get(root);
     let ready,active=false,admissions=0;const pending=[],retrying=new Set();
@@ -42,7 +43,7 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
             const id=pending.shift();let job,payload,writes=Promise.resolve(),progressPending=false;
             try{
                 job=await load(id);job.status='processing';job.runs=(job.runs||0)+1;await atomic(filename(id,'status.json'),job);
-                payload=JSON.parse(await fs.readFile(filename(id,'input.json'),'utf8'));
+                payload=JSON.parse(await fs.readFile(filename(id,'input.json'),'utf8'),(key,value)=>value?.type==='Buffer'&&Array.isArray(value.data)&&value.data.length<=12*1024*1024?Buffer.from(value.data):value);
                 let completedContent;try{completedContent=JSON.parse(await fs.readFile(filename(id,'content.json'),'utf8'));}catch{}
                 let plan,partial;try{plan=JSON.parse(await fs.readFile(filename(id,'plan.json'),'utf8'));}catch{}
                 try{partial=JSON.parse(await fs.readFile(filename(id,'partial.json'),'utf8'));}catch{}
@@ -63,8 +64,9 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
                 }});
                 await writes;
                 const safe=publicGenerationResult(result);
-                await update({status:'completed',result:safe});
-                try{await model?.findByIdAndUpdate?.(payload.recordId,{$set:{status:'completed',generatedContent:safe.generatedContent,artifacts:safe.artifacts||safe.preview}});}
+                const incomplete=safe.status==='incomplete';
+                await update({status:incomplete?'failed':'completed',result:safe,...(incomplete?{error:{errorCode:'IMAGE_REQUIREMENTS_UNMET',stage:'image-validation',message:'Required images are missing. Available artifacts are incomplete; retry or provide authorized assets.'}}:{})});
+                try{await model?.findByIdAndUpdate?.(payload.recordId,{$set:{status:incomplete?'failed':'completed',generatedContent:safe.generatedContent,artifacts:safe.artifacts||safe.preview}});}
                 catch{await update({warnings:[{code:'JOB_RECORD_UPDATE_FAILED',message:'Output is available; its MongoDB request record could not be updated.'}]});}
             }catch(error){
                 await writes.catch(()=>{});

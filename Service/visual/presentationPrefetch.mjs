@@ -6,6 +6,8 @@ import {createImageAssetSession} from './presentationImageAssets.mjs';
 import {configuredImageProviders} from './imageProviders.mjs';
 import {imagePolicy} from './imagePolicy.mjs';
 import {measureStage} from '../performance.mjs';
+import {storageRoot} from '../storageRoot.mjs';
+import {classifyImageError,imageDiagnostic} from './imageAssetService.mjs';
 
 export function presentationContext(inferred={},context={}){
     return Object.fromEntries(['userRole','purpose','audience','topic','tone','keyInstructions','designPreferences'].map(key=>[key,context[key]||inferred[key]||(key==='keyInstructions'?[]:key==='designPreferences'?{}:'')]));
@@ -22,13 +24,16 @@ export function presentationPrefetch({inputType,input,context,options={}}){
             const resolved=presentationContext(deck.inferredContext,context);
             const visualContext={...resolved,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')};
             const planned=planImageCoverage(presentationThemeService(deck,resolved),visualContext);
-            const requested=planned.slides.filter(s=>s.content&&s.imageRequirement?.required&&!entries.has(s.slideNumber));
+            const requested=planned.slides.filter(s=>s.content&&s.imageRequirement&&!entries.has(s.slideNumber));
             if(!requested.length)return;
             const theme=deriveVisualTheme(planned,visualContext);
-            session??=createImageAssetSession({providers:options.providers||configuredImageProviders(),policy:{...imagePolicy(),...options.policy,...(options.providerTimeoutMs?{timeoutMs:options.providerTimeoutMs}:{})},root:path.resolve(options.cacheRoot||'generated/visual-assets'),external:true,
+            session??=createImageAssetSession({providers:options.providers||configuredImageProviders(),policy:{...imagePolicy(),...options.policy,...(options.providerTimeoutMs?{timeoutMs:options.providerTimeoutMs}:{})},root:path.resolve(options.cacheRoot||storageRoot('visual-assets')),external:true,
                 onDiagnostic:options.onImageDiagnostic||(({reason,...safe})=>console.info('[IMAGE]',JSON.stringify(safe)))});
             for(const slide of requested){
-                const promise=measureStage(`presentation-image-${slide.slideNumber}`,()=>session.resolve(planned,slide,theme,visualContext)).catch(()=>null);
+                const promise=measureStage(`presentation-image-${slide.slideNumber}`,()=>session.resolve(planned,slide,theme,visualContext)).catch(error=>{
+                    imageDiagnostic({generationType:'presentation',provider:'prefetch',slideNumber:slide.slideNumber,status:'failed',...classifyImageError(error)});
+                    return null;
+                });
                 entries.set(slide.slideNumber,{signature:photoSignature(slide),promise});
             }
         },

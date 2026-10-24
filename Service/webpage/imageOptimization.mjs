@@ -3,6 +3,7 @@ import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {storageRoot} from '../storageRoot.mjs';
 
 let processing=0;const waiting=[];
 const capacity=process.env.LEDIFY_WEBPAGE_IMAGE_WORKERS==='2'?2:1;
@@ -15,7 +16,7 @@ async function acquire(){
 }
 function release(){const next=waiting.shift();if(next){clearTimeout(next.timer);next.resolve();}else processing--;}
 
-export async function optimizeWebsiteImage(buffer,{cacheRoot=process.env.LEDIFY_WEBPAGE_ASSET_CACHE || 'generated/webpage-image-cache',timeoutMs=12000}={}){
+export async function optimizeWebsiteImage(buffer,{cacheRoot=process.env.LEDIFY_WEBPAGE_ASSET_CACHE || storageRoot('webpage-image-cache'),timeoutMs=12000}={}){
     if(!Buffer.isBuffer(buffer)||buffer.length>12*1024*1024)throw new Error('Invalid image byte budget');
     const id=createHash('sha256').update('webp-v1').update(buffer).digest('hex').slice(0,24),root=path.resolve(cacheRoot),metadataPath=path.join(root,id+'.json');
     try{

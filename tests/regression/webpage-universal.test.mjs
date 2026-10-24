@@ -73,7 +73,7 @@ test('generated image adapter sends art direction and aspect ratio to the config
 
 test('provider retries, timeout and asset budgets are bounded; missing generation configuration is explicit',async t=>{
     const root=await temporary(t),buffer=await fs.readFile('assets/webpage/curated/library.jpg');let calls=0;
-    const provider={id:'controlled-test',acquire:async request=>{if(++calls===1)throw new Error('Temporary failure');return {buffer,creator:'Jorge Mendoza',license:'CC0',alt:'Library reading environment',illustrative:true};}};
+    const provider={id:'controlled-test',acquire:async request=>{if(++calls===1)throw Object.assign(new Error('Temporary failure'),{status:503});return {buffer,creator:'Jorge Mendoza',license:'CC0',alt:'Library reading environment',illustrative:true};}};
     const result=await acquireWebsiteImages(base(),{}, {curated:false,providers:[provider],policy:{maxAssets:1,retries:1},optimization:{cacheRoot:root}});
     assert.equal(calls,2);assert.equal(result.page.visualAssets.credits.length,1);assert.ok(result.warnings.some(w=>w.code==='WEBPAGE_IMAGE_GENERATION_NOT_CONFIGURED'));
     const start=Date.now();const timeout=await acquireWebsiteImages(base(),{}, {curated:false,providers:[{id:'never-responds',acquire:()=>new Promise(()=>{})}],policy:{timeoutMs:10,totalMs:20,maxAssets:1}});

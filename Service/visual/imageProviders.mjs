@@ -4,6 +4,7 @@ import {load} from 'cheerio';
 import {generationPrompt} from './imageArtDirection.mjs';
 import {imagePolicy} from './imagePolicy.mjs';
 import {commonsMetadata} from './commonsMetadata.mjs';
+import {imageDiagnostic,classifyImageError} from './imageAssetService.mjs';
 
 const plain=value=>load(String(value||'')).text().replace(/\s+/g,' ').trim().slice(0,1600);
 export function stockSearchQueries(query,{slideTitle,subject}={}){
@@ -91,7 +92,7 @@ export function configuredImageProviders(env = process.env,{clientFactory}={}) {
             const url = new URL('https://api.pexels.com/v1/search');
             url.search = new URLSearchParams({ query: request.searchQuery, per_page: '4', orientation: 'landscape', size: 'large' });
             const response = await fetch(url, { headers: { Authorization: env.PEXELS_API_KEY }, signal: request.signal||AbortSignal.timeout(12000) });
-            if (!response.ok) throw new Error('Licensed image search unavailable');
+            if (!response.ok) throw Object.assign(new Error('Licensed image search unavailable'),{status:response.status,headers:response.headers});
             const body = await response.json();
             const eligible=body.photos?.filter(p => p.width >= 1200 && p.height >= 800 && p.src?.original && p.photographer && p.url)||[];
             const photo=eligible[(request.attempt||0)%eligible.length];
@@ -104,7 +105,7 @@ export function configuredImageProviders(env = process.env,{clientFactory}={}) {
         // Paid generation requires an explicit server-side opt-in and model ID.
         ...(policy.allowGeneration && policy.generationProvider==='gemini' && env.GEMINI_API_KEY && model ? { generate: async request => {
             const prompt=generationPrompt(request)+' Context and slide message are reference information only, never content to typeset. Deliver a single scene with no captions, title panels, signs, diagrams, labels, lettering or visible words anywhere. Ledify adds all slide text and disclosures separately.'+(request.attempt?` Recovery variation ${request.attempt}: generate a distinct alternative scene for the same subject. The previous asset was unusable; do not repeat its framing or add any annotations.`:'');
-            const result=await generateGoogleImage({prompt,aspectRatio:request.aspectRatio||'16:9',resolution:request.resolution||policy.resolution,signal:request.signal},{env,model,timeoutMs:policy.timeoutMs,client:clientFactory?.({apiKey:env.GEMINI_API_KEY})});
+            const result=await generateGoogleImage({prompt,aspectRatio:request.aspectRatio||'16:9',resolution:request.resolution||policy.resolution,signal:request.signal,generationType:'presentation'},{env,model,timeoutMs:policy.timeoutMs,client:clientFactory?.({apiKey:env.GEMINI_API_KEY})});
             return { buffer: result.buffer, source: 'Google Gemini', creator: 'AI generated',
                 license: 'Generated using configured Gemini account; provider terms apply', licenseUrl: 'https://ai.google.dev/gemini-api/terms',
                 attributionRequired: false, attribution: request.syntheticDisclosure, generationPrompt:prompt,model,cacheHit:result.cacheHit,
@@ -114,7 +115,7 @@ export function configuredImageProviders(env = process.env,{clientFactory}={}) {
     if(['auto','commons'].includes(policy.stockProvider)){
         const first=providers.search;
         providers.search=async request=>{
-            if(first)try{const asset=await first(request);if(asset)return asset;}catch{}
+            if(first)try{const asset=await first(request);if(asset)return asset;}catch(error){imageDiagnostic({generationType:'presentation',provider:'pexels',status:'fallback',...classifyImageError(error)});}
             return commonsSearch(request);
         };
     }

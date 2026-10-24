@@ -44,10 +44,10 @@ Explicit numbered slide requirements: ${JSON.stringify(numberedSlideRequirements
 Source input: ${JSON.stringify(input)}`;
 }
 
-export function buildSlidePrompt(input, context, presentation, slide, previous) {
+export function buildSlidePrompt(input, context, presentation, slide, previous,usesImage=false) {
     return `Write visible content for exactly one slide using only the canonical key in the response schema.
 ${groundingRules}
-Default image-rich output reserves an image area on every slide. Keep supporting copy concise enough to fit alongside an image; charts and diagrams remain editable in the other area. Preserve content accuracy.
+${usesImage?'This slide has a planned image area. Keep supporting copy concise enough to fit alongside it; charts and diagrams remain editable.':'Use the native content layout for this slide; do not invent a supporting photo requirement.'} Preserve content accuracy.
 Use concise readable text: titles/headings at most 15 words, body at most 80 words, descriptions at most 30 words; normally 2–4 items. Keep items under 22 words each, at most 6 items; comparisons at most 3 alternatives with 3 short points each; tables at most 4 columns and 6 rows with cells under 8 words. Relationships at most 5 nodes and 5 links. Case studies: at most 20 words per field. Charts: at most 8 categories and 3 series.
 For text-visual, write informative body text and a distinct visual request. When a useful diagram can be expressed as a schematic, include visual.diagram: kind flowchart/cycle/labeled, 2–8 nodes with exact short labels/descriptions, edges with valid IDs and short relationship labels, and a caption identifying simplification. This structured diagram will actually be rendered. Never put visual instructions in visible body text. Do not invent anatomy or causal connections to fill space. Preserve complete scientific names. Describe spatial anatomy as a simplified schematic if precise geometry is unavailable.
 Meaningful depth depends on audience and purpose, not a minimum word count: cover the mechanism, relationships and essential distinctions needed by this slide's objective. Use labels and diagrams to complement explanatory text. For educational science preserve correct terminology and qualified established values where relevant; avoid universal constants or unsupported study results. Conclusions should connect prior ideas to implications, not merely enumerate earlier slide headings.
