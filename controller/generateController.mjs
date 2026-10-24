@@ -47,7 +47,8 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
             }
             const visualInput=outputType==='presentation'?await prepareInputImageAssets(context,req.file):null;
             if(visualInput)context=visualInput.context;
-            record = await measureStage('database-create',()=>model.create({ inputType:kind, input: label, outputType, status: 'processing' }));
+            if(outputType==='presentation')resolveSlideCount(kind==='prompt'?input:'',context);
+            record = await databaseOperation('database-create',()=>model.create({ inputType:kind, input: label, outputType, status: 'processing' }));
             if(req.get?.('Prefer')?.split(',').some(value=>value.trim()==='respond-async')){
                 const job=await generationJobs({...jobOptions,generator,model,root:jobRoot}).enqueue({kind,input,outputType,context,recordId:String(record._id),options:visualInput?.assets.length?{visuals:{userAssets:visualInput.assets}}:{}});
                 res.set?.('Preference-Applied','respond-async');res.set?.('Location',job.statusUrl);
@@ -61,7 +62,7 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
             if(result.generatedContent?.inferredContext) result.generatedContent.inferredContext=compactOptionalContext(result.generatedContent.inferredContext);
             record.status = result.status==='incomplete'?'failed':'completed'; record.generatedContent = result.generatedContent;
             if (result.artifacts || result.preview) record.artifacts = result.artifacts || result.preview;
-            await measureStage('database-save',()=>record.save());
+            await databaseOperation('database-save',()=>record.save());
             const legacy=req.get?.('X-Ledify-Response-Version')==='1';
             const request=legacy?(record.toObject?.() || {...record}):Object.fromEntries(['_id','inputType','outputType','status','createdAt','updatedAt'].filter(k=>record[k]!=null).map(k=>[k,record[k]]));
             const status=result.status || 'completed';
@@ -79,8 +80,13 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
             const message=status==='partial_success'?'Generation partially completed; review warnings':status==='completed_with_warnings'?'Generated with quality warnings; review before use':`${outputType === 'presentation' ? 'Presentation' : outputType === 'webpage' ? 'Webpage' : 'Document'} generated successfully`;
             return res.status(201).json({ message, data: { responseVersion:legacy?1:2,request:publicGenerationResult(request),result } });
         } catch (error) {
-            if (record) { record.status = 'failed'; try { await record.save(); } catch {} }
+            if (record && error.code!=='DATABASE_UNAVAILABLE') { record.status = 'failed'; try { await record.save(); } catch {} }
             const code = error.code || 'GENERATION_FAILED';
+            if(code==='DATABASE_UNAVAILABLE'){
+                res.set?.('Retry-After','15');
+                console.error('[DATABASE]',JSON.stringify({errorCode:code,stage:error.stage,errorType:error.databaseErrorType}));
+                return res.status(503).json({message:'Database is temporarily unavailable',error:'The server could not save the generation request. Check MongoDB connectivity and retry.',errorCode:code,stage:error.stage});
+            }
             if(['GENERATION_QUEUE_FULL','AI_PROVIDER_BUSY'].includes(code)){res.set?.('Retry-After','15');return res.status(503).json({message:'Generation capacity is occupied. Retry shortly.',errorCode:code});}
             if(error.validationErrors?.length) console.error('[GENERATION_VALIDATION]',JSON.stringify({requestId:error.requestId,stage:error.stage,validationErrors:error.validationErrors}));
             console.error('[GENERATION]',JSON.stringify({errorCode:code,stage:error.stage||'generation',requestId:error.requestId,slideNumber:error.slideNumber,sectionId:error.sectionId,validationRule:error.validationRule,field:error.field,maxCharacters:error.maxCharacters,lastErrorCode:error.lastErrorCode,providerStatus:error.providerStatus,providerReason:error.providerReason,model:error.model}));
@@ -122,6 +128,13 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
     return { userText: handle('prompt'), userUrl: handle('url'), userFile: handle('file'),userCombined:handle('combined') };
 }
 function invalid(message) { return Object.assign(new Error(message), { code: 'INVALID_REQUEST' }); }
+async function databaseOperation(stage,operation){
+    try{return await measureStage(stage,operation);}catch(cause){
+        // Validation/programming errors must not be disguised as connectivity failures.
+        if(!/^(?:MongoNetworkError|MongoNetworkTimeoutError|MongoServerSelectionError|MongooseServerSelectionError|MongoNotConnectedError|MongoTopologyClosedError|MongoPoolClearedError)$/.test(cause.name||'')&&!/buffering timed out|connection.*closed|server selection timed out/i.test(cause.message||''))throw cause;
+        throw Object.assign(new Error('Database is temporarily unavailable',{cause}),{code:'DATABASE_UNAVAILABLE',stage,databaseErrorType:cause.name});
+    }
+}
 function requestContext(context, slideCount) {
     if (context != null && (typeof context !== 'object' || Array.isArray(context))) throw Object.assign(new Error('Context must be an object'), { code: 'INVALID_CONTEXT' });
     return { ...(context || {}), ...(slideCount == null ? {} : { slideCount }) };

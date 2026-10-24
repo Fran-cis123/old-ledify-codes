@@ -12,6 +12,17 @@ import { validateQuantitativeGrounding } from "../../Service/ai/sourceGrounding.
 const schema = { type: "object", properties: { title: { type: "string" } }, required: ["title"] };
 const response = (value = { title: "Valid title" }) => ({ text: JSON.stringify(value), candidates: [{ finishReason: "STOP" }], usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 8 } });
 const options = { schema, outputType: "presentation" };
+test('temporary fetch and nested socket failures recover with bounded retries and unchanged source',async()=>{
+    for(const failure of [new TypeError('fetch failed'),new Error('connection',{cause:new AggregateError([Object.assign(new Error('private-host'),{code:'ECONNREFUSED'})])}),Object.assign(new Error('timeout'),{code:'UND_ERR_CONNECT_TIMEOUT'})]){
+        const run=await retry([failure,response()]);
+        assert.deepEqual(await run.promise,{title:'Valid title'});
+        assert.equal(run.calls.length,2);assert.deepEqual(run.delays,[500]);
+        assert.equal(run.calls[1].contents,'PRIVATE SOURCE');
+    }
+    const run=await retry([new TypeError('fetch failed')]);
+    await assert.rejects(run.promise,{code:'AI_RETRY_EXHAUSTED',lastErrorCode:'AI_PROVIDER_TRANSIENT',providerReason:'PROVIDER_CONNECTION_FAILED'});
+    assert.equal(run.calls.length,3);
+});
 test('outline provider schema avoids bounded-array complexity without weakening local limits',()=>{
     const local={type:'object',properties:{slides:{type:'array',minItems:8,maxItems:10,items:{type:'object',properties:{kind:{type:'string',enum:['title','summary']},topics:{type:'array',maxItems:3,items:{type:'string'}}},required:['kind'],additionalProperties:false}}},required:['slides']};
     const provider=outlineProviderSchema(local);

@@ -23,7 +23,13 @@ export function resolveSlideCount(input, context = {}) {
         const number = `(?:-?\\d+(?:\\.\\d+)?|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|${Object.keys(words).join('|')})`;
         const matches = [
             ...[...instructions.matchAll(new RegExp(`(?<![\\w.\\-])(${number})[\\s-]+slides?\\b`, 'gi'))].filter(match=>!describesSubset(match,instructions)),
-            ...instructions.matchAll(/\b(?:slide\s*count|number\s*of\s*slides|slides)\s*[:=]\s*(-?\d+(?:\.\d+)?)\b/gi)
+            ...[...instructions.matchAll(/\b(?:slide\s*count|number\s*of\s*slides|slides)\s*[:=]\s*(-?\d+(?:\.\d+)?)\b/gi)].filter(match => {
+                // "Slides: 1. Cover, 2. Introduction" starts an outline.
+                // Explicit "slide count: 1" still specifies a one-slide deck.
+                const tail=instructions.slice(match.index + match[0].length);
+                const outline=/^slides\s*:/i.test(match[0]) && match[1]==='1' && /^\s*[.)]\s*\S/.test(tail) && /\b2[.)]\s+\S/.test(tail);
+                return !outline;
+            })
         ];
         const counts = [...new Set(matches.map(m => {
             const token = m[1].toLowerCase();

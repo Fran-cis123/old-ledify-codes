@@ -7,6 +7,21 @@ const request="Create a premium, visually stunning 10-slide PowerPoint presentat
 test('exact Earth-to-Mars request keeps ten total slides and treats seven as image coverage',()=>{
     assert.deepEqual(resolveSlideCount(request),{min:10,max:10,source:'prompt'});
 });
+test('numbered slide outlines do not declare a conflicting one-slide total',()=>{
+    assert.equal(resolveSlideCount('Create a stunning 12-slide luxury presentation. Slides: 1. Luxury mansion cover. 2. Company introduction. 12. Closing.').min,12);
+    assert.equal(resolveSlideCount('Slide count: 1. Cover only.').min,1);
+    assert.equal(resolveSlideCount('Slides: 12').min,12);
+    assert.equal(resolveSlideCount('Slides: 12. Use photographs.').min,12);
+});
+test('invalid totals reject before database writes; database outages have safe actionable responses',async()=>{
+    let creates=0,status,payload;
+    const res={status(value){status=value;return this;},json(value){payload=value;return this;},set(){return this;}};
+    const handlers=createGenerationHandlers({model:{create:async()=>{creates++;throw Object.assign(new Error('private-host'),{name:'MongoNetworkError'});}}});
+    await handlers.userText({body:{textPrompt:'Create 10 slides. Create 7 slides.',outputType:'presentation'}},res);
+    assert.equal(status,400);assert.equal(creates,0);
+    await handlers.userText({body:{textPrompt:'Create a luxury real estate presentation.',outputType:'presentation',context:{slideCount:12}}},res);
+    assert.equal(status,503);assert.equal(creates,1);assert.equal(payload.errorCode,'DATABASE_UNAVAILABLE');assert.equal(payload.stage,'database-create');assert.ok(!JSON.stringify(payload).includes('private-host'));
+});
 test('image, chart and diagram subset requirements do not override or conflict with deck length',()=>{
     for(const text of ['Create 10 slides. Use images on 7 slides.','Create a ten-slide deck. Include diagrams across exactly five slides.','Make 10 slides. Seven slides should contain images.','Create 10 slides with images.','Create a presentation in 10 slides.','Make 10 slides; use charts in at least 3 slides.','Create 10 slides. Add images to 7 slides.'])assert.equal(resolveSlideCount(text).min,10,text);
     assert.deepEqual(resolveSlideCount('Use images on at least 7 slides.'),{min:8,max:10,source:'default'});
