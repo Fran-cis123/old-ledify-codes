@@ -1,5 +1,5 @@
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, BorderStyle,
-    Header, Footer, PageNumber, AlignmentType, PageOrientation, SectionType, ImageRun, ExternalHyperlink, LevelFormat } from 'docx';
+    Header, Footer, PageNumber, AlignmentType, PageOrientation, SectionType, ImageRun, ExternalHyperlink, LevelFormat,LineRuleType } from 'docx';
 import JSZip from 'jszip';
 import { load } from 'cheerio';
 import { loadImage } from '@napi-rs/canvas';
@@ -61,7 +61,9 @@ export async function validateDocumentAssets(assets=[]) {
 export async function renderDocumentDocx(document,context={}) {
     const style=documentStyle(document,context),assets=await validateDocumentAssets(document.assets||[]),references=document.references||[];
     const pageSize=orientation=>({width:style.paper==='Letter'?12240:11906,height:style.paper==='Letter'?15840:16838,orientation:orientation==='landscape'?PageOrientation.LANDSCAPE:PageOrientation.PORTRAIT});
-    const bodySpacing={after:style.long?100:160,line:Math.round(style.lineSpacing*240)};
+    // Explicit automatic line units are essential for wrapped 24 pt titles.
+    // Without lineRule, Writer can interpret the inherited 276 as fixed twips.
+    const bodySpacing={after:style.long?100:160,line:Math.round(style.lineSpacing*240),lineRule:LineRuleType.AUTO};
     const text=(value,options={})=>new TextRun({text:value,...options});
     const para=(value,options={})=>new Paragraph({children:String(value).split(/\r?\n/).flatMap((line,i)=>[...(i?[new TextRun({break:1})]:[]),text(line)]),widowControl:true,spacing:bodySpacing,...options});
     const heading=(value,level=1)=>para(value,{heading:[HeadingLevel.HEADING_1,HeadingLevel.HEADING_2,HeadingLevel.HEADING_3][level-1],keepNext:true});

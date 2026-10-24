@@ -109,6 +109,7 @@ test('LED-14: concurrent PDF downloads share one conversion and validated cached
  const root=await temporary(t),artifact=await documentArtifactService(document(),{},{root}),directory=path.join(root,artifact.id);let calls=0;
  const convert=async({pdfPath})=>{calls++;await fs.writeFile(pdfPath,pdfSource('Government responsibilities and public services are reviewed.'));};
  const [a,b]=await Promise.all([ensureDocumentPdf(directory,{convert}),ensureDocumentPdf(directory,{convert})]);assert.equal(a.pdfPath,b.pdfPath);assert.equal(calls,1);assert.equal((await ensureDocumentPdf(directory,{convert})).cacheHit,true);assert.equal(calls,1);
+ await fs.writeFile(a.pdfPath,'corrupt PDF');assert.equal((await ensureDocumentPdf(directory,{convert})).cacheHit,false);assert.equal(calls,2);
 });
 
 test('LED-14: missing native converter returns actionable HTTP 503 and preserves Word',async t=>{

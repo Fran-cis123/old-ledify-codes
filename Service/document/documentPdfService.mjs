@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import {pathToFileURL} from 'node:url';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
@@ -21,19 +22,24 @@ export async function ensureDocumentPdf(directory,{convert}={}){
     const task=(async()=>{
         const pdfPath=path.join(directory,'document.pdf');
         try{const validation=await validateDocumentPdf(await fs.readFile(pdfPath));return {pdfPath,validation,cacheHit:true};}catch{}
-        let release,work;
+        let release,work,profile;
         try{
             release=await presentationRenderQueue.acquire();
             work=path.join(directory,'.pdf-'+randomUUID());await fs.mkdir(work,{recursive:true});
             if(convert)await convert({docxPath:path.join(directory,'document.docx'),pdfPath:path.join(work,'document.pdf'),workingDirectory:work});
-            else await execute(process.env.LIBREOFFICE_PATH||(process.platform==='win32'?'C:\\Program Files\\LibreOffice\\program\\soffice.exe':'libreoffice'),[
-                '-env:UserInstallation='+pathToFileURL(path.join(work,'profile')).href,'--headless','--convert-to','pdf:writer_pdf_Export','--outdir',work,path.join(directory,'document.docx')
-            ],{windowsHide:true,timeout:60000,maxBuffer:1024*1024});
+            else{
+                // Keep native profile paths short: nested artifact roots can
+                // exceed Writer's Windows path limits during profile creation.
+                profile=await fs.mkdtemp(path.join(os.tmpdir(),'ld-pdf-'));
+                await execute(process.env.LIBREOFFICE_PATH||(process.platform==='win32'?'C:\\Program Files\\LibreOffice\\program\\soffice.exe':'libreoffice'),[
+                    '-env:UserInstallation='+pathToFileURL(profile).href,'--headless','--convert-to','pdf:writer_pdf_Export','--outdir',work,path.join(directory,'document.docx')
+                ],{windowsHide:true,timeout:60000,maxBuffer:1024*1024});
+            }
             const output=await fs.readFile(path.join(work,'document.pdf')),validation=await validateDocumentPdf(output);
             await fs.rename(path.join(work,'document.pdf'),pdfPath);
             return {pdfPath,validation,cacheHit:false};
-        }catch{throw unavailable();}
-        finally{release?.();if(work)await fs.rm(work,{recursive:true,force:true}).catch(()=>{});}
+        }catch(error){console.error('[DOCUMENT_EXPORT]',JSON.stringify({status:'failed',errorCode:'DOCUMENT_PDF_UNAVAILABLE',reasonCode:typeof error.code==='string'?error.code:error.name||'CONVERSION_FAILED',...(Number.isInteger(error.code)?{nativeExitCode:error.code}:{})}));throw Object.assign(unavailable(),{cause:error});}
+        finally{release?.();if(work)await fs.rm(work,{recursive:true,force:true}).catch(()=>{});if(profile&&path.dirname(profile)===path.resolve(os.tmpdir())&&path.basename(profile).startsWith('ld-pdf-'))await fs.rm(profile,{recursive:true,force:true}).catch(()=>{});}
     })();pending.set(directory,task);
     try{return await task;}finally{pending.delete(directory);}
 }

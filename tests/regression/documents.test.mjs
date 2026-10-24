@@ -105,6 +105,12 @@ test('Word package has editable styles, tables, numbering, code, fields and page
     const footer=await zip.file('word/footer1.xml').async('string');assert.match(footer,/PAGE/);
     await assert.rejects(validateDocxArtifact(Buffer.from('not docx'),d),{code:'DOCUMENT_ARTIFACT_INVALID'});
 });
+test('wrapped document titles retain font-relative line spacing instead of overlapping fixed leading',async()=>{
+    const d=draft();d.title='Government Responsibilities and Public Accountability';
+    const zip=await JSZip.loadAsync(await renderDocumentDocx(d)), $=load(await zip.file('word/document.xml').async('string'),{xml:true});
+    const title=$('w\\:p').filter((i,p)=>$(p).find('w\\:pStyle').attr('w:val')==='Title').first();
+    assert.equal(title.find('w\\:spacing').attr('w:lineRule'),'auto');assert.ok(Number(title.find('w\\:spacing').attr('w:line'))>=240);assert.equal(title.find('w\\:t').text(),d.title);
+});
 test('letters suppress report headings and running headers and accept explicit typography',async()=>{
     const d=draft();d.documentType='formal-letter';d.coverPage=true;const b=await renderDocumentDocx(d);const zip=await JSZip.loadAsync(b);const xml=await zip.file('word/document.xml').async('string');assert.ok(!xml.includes('Heading1'));assert.ok(!xml.includes('headerReference'));assert.ok(!xml.includes('footerReference'));
     assert.equal(documentStyle(d,{instructions:'Arial 12-point double-spaced Letter paper'}).font,'Arial');assert.equal(documentStyle(d,{instructions:'Arial 12-point double-spaced Letter paper'}).lineSpacing,2);assert.throws(()=>documentStyle(d,{documentFormatting:{marginInches:0}}));
