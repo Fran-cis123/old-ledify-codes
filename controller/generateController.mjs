@@ -10,6 +10,7 @@ import { addPresentationPublicUrls } from '../Service/presentationPublicUrls.mjs
 import {prepareInputImageAssets,validateVisualAssetInputs} from '../Service/visual/inputImageAssets.mjs';
 import {profileGeneration,measureStage} from '../Service/performance.mjs';
 import {generationJobs} from '../Service/generationJobs.mjs';
+import {validateTextPrompt} from '../Service/input/promptValidation.mjs';
 
 export function createGenerationHandlers({ model = generateModel, generator = generateService, extractFile = fileService, extractUrl = urlService,jobRoot,jobOptions={} } = {}) {
     const handle = inputType => (req, res) => profileGeneration(async() => {
@@ -23,6 +24,11 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
                 try { context = JSON.parse(context); } catch { throw Object.assign(new Error('Context must be valid JSON'), { code: 'INVALID_CONTEXT' }); }
             }
             context = requestContext(context, slideCount);
+            const exportFormat=req.body.exportFormat??context.exportFormat;
+            if(exportFormat!=null){
+                if(outputType!=='document'||!['docx','pdf'].includes(exportFormat))throw Object.assign(new Error('exportFormat must be docx or pdf and is supported for document output.'),{code:'INVALID_EXPORT_FORMAT',field:'exportFormat'});
+                context.exportFormat=exportFormat;
+            }
             if(outputType==='presentation')validateVisualAssetInputs(context);
             if (outputType === 'presentation') resolveSlideCount('', context);
             let input, label,kind=inputType,sources;
@@ -36,7 +42,7 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
             } else {
                 const field = inputType === 'prompt' ? 'textPrompt' : 'urlPrompt';
                 if (typeof req.body[field] !== 'string' || !req.body[field].trim()) throw invalid(field + ' and outputType are required');
-                label = req.body[field];
+                label = inputType==='prompt'?validateTextPrompt(req.body[field]):req.body[field];
                 input = inputType === 'url' ? await measureStage('input-extraction',()=>extractUrl(label)) : label;
             }
             const visualInput=outputType==='presentation'?await prepareInputImageAssets(context,req.file):null;
@@ -59,7 +65,11 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
             const legacy=req.get?.('X-Ledify-Response-Version')==='1';
             const request=legacy?(record.toObject?.() || {...record}):Object.fromEntries(['_id','inputType','outputType','status','createdAt','updatedAt'].filter(k=>record[k]!=null).map(k=>[k,record[k]]));
             const status=result.status || 'completed';
-            if(status==='incomplete')return res.status(422).json({message:'Generation is incomplete: required images could not be verified',errorCode:'IMAGE_REQUIREMENTS_UNMET',stage:'image-validation',data:{responseVersion:2,request:publicGenerationResult(request),result}});
+            if(status==='incomplete'){
+                const pdfFailed=result.exportValidation?.status==='incomplete';
+                if(pdfFailed)res.set?.('Retry-After','15');
+                return res.status(pdfFailed?503:422).json({message:pdfFailed?'PDF export is unavailable; Word download and preview remain available':'Generation is incomplete: required images could not be verified',errorCode:pdfFailed?'DOCUMENT_PDF_UNAVAILABLE':'IMAGE_REQUIREMENTS_UNMET',stage:pdfFailed?'document-export':'image-validation',data:{responseVersion:2,request:publicGenerationResult(request),result}});
+            }
             res.set?.('X-Ledify-Response-Version',legacy?'1':'2');
             if(result.timings) {
                 const entries=Object.entries(result.timings).filter(([name,duration])=>/^[a-z]+Ms$/i.test(name)&&Number.isFinite(duration)&&duration>=0);
@@ -99,9 +109,14 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
                 return res.status(503).json({message:'Presentation rendering is busy. Retry shortly.',errorCode:code,stage:'presentation-rendering'});
             }
             if(['SOURCE_URL_TOO_LARGE','SOURCE_URL_TEXT_TOO_LARGE'].includes(code))return res.status(413).json({message:error.message,error:error.message,errorCode:code,stage:error.stage,maxBytes:error.maxBytes,maxCharacters:error.maxCharacters});
+            if(/^SOURCE_URL_(?:AUTH_REQUIRED|ACCESS_DENIED|PAYWALL|UNREACHABLE|TIMEOUT|RATE_LIMITED)$/.test(code)){
+                const status=code==='SOURCE_URL_TIMEOUT'?504:code==='SOURCE_URL_UNREACHABLE'?502:code==='SOURCE_URL_RATE_LIMITED'?429:422;
+                if(status===429)res.set?.('Retry-After','30');
+                return res.status(status).json({message:error.message,error:error.message,errorCode:code,stage:'input-extraction'});
+            }
             const clientError = /^(INVALID_|SOURCE_URL|WEBPAGE_VALIDATION|WEBPAGE_STATIC)/.test(code);
             return res.status(clientError ? 400 : 500).json({ message: clientError ? error.message : 'Generation failed; see errorCode and stage', error: clientError ? error.message : 'Unable to complete generation',
-                errorCode: code, stage: error.stage||'generation', slideNumber: error.slideNumber,sectionId:error.sectionId,validationRule:error.validationRule, field: error.field, maxCharacters:error.maxCharacters, requestId: error.requestId, lastErrorCode: error.lastErrorCode });
+                errorCode: code, stage: error.stage||'generation', slideNumber: error.slideNumber,sectionId:error.sectionId,validationRule:error.validationRule, field: error.field, minCharacters:error.minCharacters,maxCharacters:error.maxCharacters, requestId: error.requestId, lastErrorCode: error.lastErrorCode });
         }
     });
     return { userText: handle('prompt'), userUrl: handle('url'), userFile: handle('file'),userCombined:handle('combined') };

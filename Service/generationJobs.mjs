@@ -65,7 +65,8 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
                 await writes;
                 const safe=publicGenerationResult(result);
                 const incomplete=safe.status==='incomplete';
-                await update({status:incomplete?'failed':'completed',result:safe,...(incomplete?{error:{errorCode:'IMAGE_REQUIREMENTS_UNMET',stage:'image-validation',message:'Required images are missing. Available artifacts are incomplete; retry or provide authorized assets.'}}:{})});
+                const pdfFailed=safe.exportValidation?.status==='incomplete';
+                await update({status:incomplete?'failed':'completed',result:safe,...(incomplete?{error:pdfFailed?{errorCode:'DOCUMENT_PDF_UNAVAILABLE',stage:'document-export',message:'PDF export is unavailable; Word and preview remain available.'}:{errorCode:'IMAGE_REQUIREMENTS_UNMET',stage:'image-validation',message:'Required images are missing. Available artifacts are incomplete; retry or provide authorized assets.'}}:{})});
                 try{await model?.findByIdAndUpdate?.(payload.recordId,{$set:{status:incomplete?'failed':'completed',generatedContent:safe.generatedContent,artifacts:safe.artifacts||safe.preview}});}
                 catch{await update({warnings:[{code:'JOB_RECORD_UPDATE_FAILED',message:'Output is available; its MongoDB request record could not be updated.'}]});}
             }catch(error){

@@ -49,7 +49,7 @@ export async function fetchPublicResource(value, { lookup = dns.lookup, request:
                 res.on('error', reject);
                 if ([301, 302, 303, 307, 308].includes(res.statusCode)) { res.resume(); resolve({ redirect: res.headers.location }); return; }
                 if (res.statusCode < 200 || res.statusCode >= 300) { res.resume(); reject(Object.assign(new Error(`Source URL returned HTTP ${res.statusCode}`),{status:res.statusCode,...(res.statusCode===429?{code:'SOURCE_URL_RATE_LIMITED'}:{})})); return; }
-                if (!contentTypes.test(res.headers['content-type'] || '')) { res.resume(); reject(new Error('Source URL returned an unsupported content type')); return; }
+                if (!contentTypes.test(res.headers['content-type'] || '')) { res.resume(); reject(Object.assign(new Error('Source URL returned an unsupported content type. Use a readable public article or upload a PDF/DOCX.'),{code:'INVALID_SOURCE_URL_CONTENT'})); return; }
                 if (res.headers['content-encoding'] && res.headers['content-encoding'] !== 'identity') { res.resume(); reject(new Error('Unsupported source compression')); return; }
                 if(Number(res.headers['content-length'])>maxBytes) {reject(tooLarge());req.destroy();return;}
                 let size = 0; const chunks = [];

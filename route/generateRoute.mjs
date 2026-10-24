@@ -10,7 +10,7 @@ import { webpageAssetHandlers } from '../controller/webpageAssetsController.mjs'
 
 import { UPLOAD_FORMAT_MESSAGE } from '../Service/input/fileValidation.mjs';
 
-import { documentDownloadHandler, documentPreviewHandler } from '../controller/documentAssetsController.mjs';
+import { documentDownloadHandler, documentPreviewHandler,documentPdfHandler } from '../controller/documentAssetsController.mjs';
 import {documentImageInventory} from '../Service/visual/inputImageAssets.mjs';
 import {generationJobs} from '../Service/generationJobs.mjs';
 import {generateService} from '../Service/generateService.mjs';
@@ -49,6 +49,7 @@ export function createGenerationRouter(options = {}) {
     router.get('/documents/:id/:token/download',documentDownloadHandler(options.documentRoot));
 
     router.get('/documents/:id/:token/preview',documentPreviewHandler(options.documentRoot));
+    router.get('/documents/:id/:token/pdf',documentPdfHandler(options.documentRoot));
 
     router.get('/presentations/:previewId/slides/:slideNumber', getPresentationSlide);
 

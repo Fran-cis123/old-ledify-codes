@@ -5,9 +5,11 @@ import { renderDocumentDocx, validateDocxArtifact, documentStyle } from '../../r
 import { renderDocumentPreview } from '../../renderer/document/documentPreview.mjs';
 import {measureStage} from '../performance.mjs';
 import {storageRoot} from '../storageRoot.mjs';
+import {ensureDocumentPdf} from './documentPdfService.mjs';
 export const DOCUMENT_ROOT=path.resolve(process.env.LEDIFY_DOCUMENT_ROOT||storageRoot('documents'));
 export const documentTokenHash=token=>createHash('sha256').update(token).digest('hex');
 export async function documentArtifactService(document,context={},options={}) {
+    if(context.exportFormat!=null&&!['docx','pdf'].includes(context.exportFormat))throw Object.assign(new Error('exportFormat must be docx or pdf.'),{code:'INVALID_EXPORT_FORMAT',stage:'document-export'});
     const id=randomUUID(),token=randomBytes(32).toString('hex'),root=path.resolve(options.root||DOCUMENT_ROOT),directory=path.join(root,id);
     if(path.dirname(directory)!==root)throw new Error('Document artifact directory escaped its root.');
     try {
@@ -19,7 +21,10 @@ export async function documentArtifactService(document,context={},options={}) {
         await fs.writeFile(path.join(directory,'document.docx'),buffer,{flag:'wx'});
         await fs.writeFile(path.join(directory,'preview.html'),preview,{flag:'wx'});
         await fs.writeFile(path.join(directory,'metadata.json'),JSON.stringify({id,tokenHash:documentTokenHash(token),title:document.title,createdAt:new Date().toISOString(),format:'docx'}),{flag:'wx'});
-        return {id,documentId:id,outputType:'document',format:'docx',status:document.warnings?.length?'completed_with_warnings':'completed',previewUrl:`/api/documents/${id}/${token}/preview`,downloadUrl:`/api/documents/${id}/${token}/download`,validation,formatting:{fontFamily:style.font,fontSize:style.size,paperSize:style.paper,lineSpacing:style.lineSpacing,marginInches:style.margin/1440,coverPage:style.cover}};
+        const format=context.exportFormat||'docx',downloads={docx:`/api/documents/${id}/${token}/download`,pdf:`/api/documents/${id}/${token}/pdf`};
+        let pdf,pdfFailed=false;
+        if(format==='pdf')try{pdf=await measureStage('document-pdf',()=>ensureDocumentPdf(directory,options.pdf));}catch{pdfFailed=true;}
+        return {id,documentId:id,outputType:'document',format,status:pdfFailed?'incomplete':document.warnings?.length?'completed_with_warnings':'completed',previewUrl:`/api/documents/${id}/${token}/preview`,downloadUrl:pdfFailed?null:downloads[format],downloads,availableFormats:['docx','pdf'],pdf:{status:pdfFailed?'failed':pdf?'completed':'on_demand',...(pdf?{validation:pdf.validation}:{})},validation,formatting:{fontFamily:style.font,fontSize:style.size,paperSize:style.paper,lineSpacing:style.lineSpacing,marginInches:style.margin/1440,coverPage:style.cover}};
     } catch(error) {
         await fs.rm(directory,{recursive:true,force:true}).catch(()=>{});
         if(error.code?.startsWith('DOCUMENT_')||error.code?.startsWith('INVALID_'))throw error;

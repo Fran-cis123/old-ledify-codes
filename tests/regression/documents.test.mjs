@@ -165,7 +165,7 @@ test('actual DOCX generation and protected previews and downloads work for text 
         const $=load(await preview.text());assert.ok($('main').text().includes(documentParagraph));assert.equal(new URL($('a[href="download"]').attr('href'),base+result.previewUrl).pathname,result.downloadUrl);
         assert.equal((await fetch(base+result.previewUrl.replace(/\/[\da-f]{64}\//,'/'+'0'.repeat(64)+'/'))).status,404);
         const wrong=result.downloadUrl.replace(/\/[\da-f]{64}\//,'/'+'0'.repeat(64)+'/');assert.equal((await fetch(base+wrong)).status,404);
-        assert.equal((await fetch(base+result.downloadUrl.replace('/download','/pdf'))).status,404);
+        const pdf=await fetch(base+result.artifacts.downloads.pdf);assert.equal(pdf.status,200);assert.match(pdf.headers.get('content-type'),/application\/pdf/);assert.equal(Buffer.from(await pdf.arrayBuffer()).subarray(0,5).toString(),'%PDF-');
         await fs.unlink(path.join(root,result.documentId,'preview.html'));assert.equal((await fetch(base+result.previewUrl)).status,404);
         assert.equal((await fetch(base+result.downloadUrl)).status,200);
         await fs.unlink(path.join(root,result.documentId,'document.docx'));assert.equal((await fetch(base+result.downloadUrl)).status,404);assert.equal((await fetch(base+result.previewUrl)).status,404);

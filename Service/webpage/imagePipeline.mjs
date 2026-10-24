@@ -61,7 +61,7 @@ export async function acquireWebsiteImages(page,context={},options={}){
     const matches=(asset,target)=>asset.role===target.role&&(target.role==='hero'||(asset.sectionId?asset.sectionId===target.sectionId:asset.sectionType===target.sectionType))&&(target.role!=='item'||asset.itemTitle===target.itemTitle);
     if(options.external!==false){
         if(!providers.some(provider=>provider.id==='gemini-image'))warnings.push({code:'WEBPAGE_IMAGE_GENERATION_NOT_CONFIGURED',message:'AI imagery is unavailable: configure WEBPAGE_ALLOW_IMAGE_GENERATION=true, WEBPAGE_IMAGE_MODEL and GEMINI_API_KEY. Authorized stock/local assets may still be used.'});
-        const targets=requests.slice(0,Math.max(0,policy.maxAssets-selected.length));
+        const targets=[...requests].sort((a,b)=>Number(b.required)-Number(a.required)||Number(b.role==='hero')-Number(a.role==='hero')).slice(0,Math.max(0,policy.maxAssets-selected.length));
         await generateIndependent(targets,generationConcurrency(options.concurrency??process.env.WEBPAGE_IMAGE_CONCURRENCY,2),async target=>{
             if(selected.some(asset=>matches(asset,target)))return;
             if(selected.length>=policy.maxAssets||Date.now()-started>=policy.totalMs)return;
@@ -70,7 +70,7 @@ export async function acquireWebsiteImages(page,context={},options={}){
                 let resolved=false;
                 for(let attempt=0;attempt<=policy.retries;attempt++){
                     const remaining=policy.totalMs-(Date.now()-started);if(remaining<=0)break;
-                    if(provider.id==='gemini-image'&&generatedCalls>=policy.maxGenerated)break;
+                    if(provider.id==='gemini-image'&&generatedCalls>=policy.maxGenerated){logImage({provider:provider.id,model:provider.model,target:target.role,status:'skipped',reasonCode:'GENERATION_BUDGET_UNAVAILABLE'});break;}
                     const controller=new AbortController();let timer;
                     const attemptStarted=performance.now();
                     try{

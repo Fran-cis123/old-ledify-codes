@@ -92,7 +92,7 @@ const generate = async (
         const document=aiResult.generatedContent;
         const artifacts=await documentArtifactService(document,{instructions:inputType==='prompt'?input:context.instructions,...context},options.document);
         timings.renderMs=Math.round(performance.now()-artifactStarted);
-        return finish({...aiResult,status:artifacts.status,documentId:artifacts.id,previewUrl:artifacts.previewUrl,downloadUrl:artifacts.downloadUrl,artifacts,warnings:document.warnings||[]});
+        return finish({...aiResult,status:artifacts.status,...(artifacts.pdf.status==='failed'?{exportValidation:{status:'incomplete',errorCode:'DOCUMENT_PDF_UNAVAILABLE'}}:{}),documentId:artifacts.id,previewUrl:artifacts.previewUrl,downloadUrl:artifacts.downloadUrl,artifacts,warnings:[...(document.warnings||[]),...(artifacts.pdf.status==='failed'?[{code:'DOCUMENT_PDF_UNAVAILABLE',stage:'document-export',message:'PDF export failed. Word and HTML preview remain available; retry the PDF link.'}]:[])]});
     }
 
     if (outputType === "presentation") {

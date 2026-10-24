@@ -20,6 +20,12 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(fn){const stop=Date.now()+10000;while(Date.now()<stop){const v=await fn();if(v)return v;await sleep(25);}assert.fail('Job did not settle');}
 function page(){const fixture=fixtures.pharmaceutical,result=webpageThemeService(webpageLayoutService({outputType:'webpage',...fixturePlan(fixture),...fixtureDraft(fixture)}));result.websiteBrief=compileWebsiteBrief(result,fixture.source);return result;}
 
+test('required website hero receives the image budget before an optional supporting image',async t=>{
+ const root=await temporary(t),draft=page(),queries=[];draft.imagePlan=[{role:'section',sectionIndex:0,required:false,subject:'Clinical research',alt:'Clinical laboratory',aspectRatio:'16:9'},{role:'hero',required:true,subject:'Pharmaceutical laboratory',alt:'Laboratory research',aspectRatio:'16:9'}];
+ const buffer=await photograph(),result=await acquireWebsiteImages(draft,{}, {curated:false,policy:{maxGenerated:1,maxAssets:2,retries:0,concurrency:1},optimization:{cacheRoot:root},providers:[{id:'gemini-image',acquire:async request=>{queries.push(request.query);return {source:'Google Gemini',creator:'AI generated',license:'Controlled test',alt:request.alt,buffer};}}],logger:()=>{}});
+ assert.deepEqual(queries,['Pharmaceutical laboratory']);assert.equal(result.page.imageValidation.status,'passed');assert.ok(result.page.visualAssets.hero);assert.ok(result.warnings.some(w=>w.code==='WEBPAGE_IMAGE_PLAN_INCOMPLETE'));
+});
+
 for(const [status,reason,retryable] of [[401,'IMAGE_INVALID_CREDENTIALS',false],[403,'IMAGE_ACCESS_DENIED',false],[404,'IMAGE_MODEL_UNAVAILABLE',false],[400,'IMAGE_REQUEST_REJECTED',false],[429,'PROVIDER_RATE_LIMITED',true],[503,'PROVIDER_UNAVAILABLE',true]])test(`HTTP ${status} classification is safe and bounded`,()=>{assert.deepEqual(classifyImageError({status,message:'private details'}),{reasonCode:reason,retryable,providerStatus:status});});
 test('backoff honors rate-limit advice with bounded jitter',()=>{assert.equal(imageRetryDelay({headers:new Headers({'Retry-After':'2'})},0,{random:()=>0}),2000);assert.equal(imageRetryDelay({},1,{random:()=>0}),500);assert.equal(imageRetryDelay({headers:{'retry-after':'999'}},0),60000);});
 test('expired download URLs are distinguished from a missing image model',()=>{assert.equal(classifyImageError({status:404,imageOperation:'download'}).reasonCode,'IMAGE_DOWNLOAD_UNAVAILABLE');assert.equal(classifyImageError({status:404}).reasonCode,'IMAGE_MODEL_UNAVAILABLE');});

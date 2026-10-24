@@ -22,6 +22,13 @@ export const urlService = async (url, { fetchText = fetchPublicText } = {}) => {
         if (contentType?.startsWith('text/plain')) return readableText(html);
 
         const $ = cheerio.load(html);
+        // Inspect access gates before removing forms/scripts. A navigation
+        // sign-in link alone is not evidence that the article is protected.
+        const articleText=$('article,main').first().text().trim();
+        const login=$('input[type="password"]').length&&(!articleText||articleText.length<500);
+        const paywall=$('script[type="application/ld+json"]').toArray().some(element=>/"isAccessibleForFree"\s*:\s*(?:false|"false")/i.test($(element).text()))||$('[data-paywall],#paywall,.paywall').toArray().some(element=>/subscribe|subscription|purchase|pay to|members.only|unlock/i.test($(element).text()));
+        if(login)throw Object.assign(new Error('This page requires sign-in. Ledify cannot access private accounts. Use a public article or upload an authorized PDF/DOCX copy.'),{code:'SOURCE_URL_AUTH_REQUIRED'});
+        if(paywall)throw Object.assign(new Error('This page is behind a subscription or paywall. Use a publicly accessible source or upload an authorized PDF/DOCX copy.'),{code:'SOURCE_URL_PAYWALL'});
 
         // Remove elements that normally don't contain
         // useful article/page content
@@ -44,15 +51,17 @@ export const urlService = async (url, { fetchText = fetchPublicText } = {}) => {
             .trim();
 
         if (!cleanText) {
-            throw new Error("No readable content was found at this URL");
+            throw Object.assign(new Error('No readable content was found. Use a public article with readable text, or upload a PDF/DOCX copy.'),{code:'INVALID_SOURCE_URL_CONTENT'});
         }
 
         return readableText(cleanText);
 
     } catch (error) {
-
+        const codes={401:'SOURCE_URL_AUTH_REQUIRED',402:'SOURCE_URL_PAYWALL',403:'SOURCE_URL_ACCESS_DENIED',404:'SOURCE_URL_UNREACHABLE',410:'SOURCE_URL_UNREACHABLE',429:'SOURCE_URL_RATE_LIMITED'};
+        const code=codes[error.status]||(error.status>=500?'SOURCE_URL_UNREACHABLE':/^E(?:CONN|HOST|NET)|ENOTFOUND|EAI_AGAIN/.test(error.code||'')?'SOURCE_URL_UNREACHABLE':error.code==='ETIMEDOUT'?'SOURCE_URL_TIMEOUT':error.code==='ERR_INVALID_URL'?'INVALID_SOURCE_URL':error.code||'SOURCE_URL_FAILED');
+        const messages={SOURCE_URL_AUTH_REQUIRED:'This page requires sign-in. Use a public article or upload an authorized PDF/DOCX copy.',SOURCE_URL_PAYWALL:'This source requires a subscription or payment. Use a public article or upload an authorized PDF/DOCX copy.',SOURCE_URL_ACCESS_DENIED:'The source website denied automated access. Use another public article or upload an authorized PDF/DOCX copy.',SOURCE_URL_UNREACHABLE:'The source page could not be reached or no longer exists. Check the URL or use another public source.',SOURCE_URL_TIMEOUT:'The source website took too long to respond. Retry or use another public source.',SOURCE_URL_RATE_LIMITED:'The source website is limiting requests. Wait and retry or use another public source.'};
         const message=error.code==='SOURCE_URL_TOO_LARGE'?`The source page exceeds the ${error.maxBytes?error.maxBytes/1024/1024:sourceUrlByteLimit()/1024/1024} MB download limit. Use a shorter article URL or upload the relevant content as PDF/DOCX.`:error.message;
-        throw Object.assign(new Error(`URL processing failed: ${message}`), { code: error.code || 'SOURCE_URL_FAILED', stage: 'input-extraction',maxBytes:error.maxBytes,maxCharacters:error.maxCharacters });
+        throw Object.assign(new Error(`URL processing failed: ${messages[code]||message}`), { code, stage: 'input-extraction',maxBytes:error.maxBytes,maxCharacters:error.maxCharacters });
 
     }
 };

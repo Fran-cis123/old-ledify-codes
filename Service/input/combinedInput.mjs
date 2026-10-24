@@ -2,6 +2,7 @@ import {validateUploadedFile} from './fileValidation.mjs';
 import {requestedTopics} from '../ai/presentationQuality.mjs';
 import {resolveSlideCount} from '../ai/slideCount.mjs';
 import {MAX_SOURCE_CHARACTERS} from './sourceLimits.mjs';
+import {validateTextPrompt} from './promptValidation.mjs';
 
 const invalid=message=>Object.assign(new Error(message),{code:'INVALID_REQUEST'});
 function optionalText(value,name,max) {
@@ -10,7 +11,7 @@ function optionalText(value,name,max) {
     return value.trim();
 }
 export async function combineGenerationInput({body,file,context,extractFile,extractUrl}) {
-    const prompt=optionalText(body.textPrompt,'textPrompt',20000),url=optionalText(body.urlPrompt,'urlPrompt',2048);
+    const prompt=validateTextPrompt(body.textPrompt,{optional:true}),url=optionalText(body.urlPrompt,'urlPrompt',2048);
     if(!prompt&&!url&&!file)throw invalid('Type a prompt, provide a public URL, or attach a PDF or DOCX file.');
     const extraInstructions=optionalText(context.instructions,'context.instructions',20000);
     if(url) {

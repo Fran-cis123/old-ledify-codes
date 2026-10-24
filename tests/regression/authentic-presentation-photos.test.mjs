@@ -183,6 +183,6 @@ test('a cancelled queued search never contacts Commons',async()=>{
 test('image failure API exposes safe reason codes without raw provider errors',async()=>{
     const handlers=createGenerationHandlers({model:{create:async()=>({save:async()=>{}})},generator:async()=>{throw Object.assign(new Error('Authentic photos unavailable'),{code:'PRESENTATION_IMAGES_UNAVAILABLE',stage:'presentation-images',missingSlides:[5],imageDiagnostics:[{slideNumber:5,method:'search',status:'failed',reasonCode:'PROVIDER_TIMEOUT',reason:'private provider details'}]});}});
     let body,status;
-    await handlers.userText({body:{textPrompt:'Travel',outputType:'presentation'}},{status(code){status=code;return this;},json(value){body=value;}});
+    await handlers.userText({body:{textPrompt:'Travel destinations',outputType:'presentation'}},{status(code){status=code;return this;},json(value){body=value;}});
     assert.equal(status,503);assert.equal(body.imageFailures[0].reasonCode,'PROVIDER_TIMEOUT');assert.ok(!JSON.stringify(body).includes('private provider'));
 });
