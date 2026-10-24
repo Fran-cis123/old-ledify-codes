@@ -43,7 +43,7 @@ import {
 // =========================================================
 
 export const previewRenderer=async(presentation,options={})=>{
-    const release=await presentationRenderQueue.acquire();
+    const release=await measureStage('render-queue',()=>presentationRenderQueue.acquire());
     try{return await renderPreview(presentation,options);}finally{release();}
 };
 const renderPreview = async (
@@ -269,14 +269,14 @@ const renderPreview = async (
             throw new Error(`Expected ${presentation.slides.length} previews, received ${previewImages.length}`);
         }
         if(!options.converters?.convertPdfToImages){
-            previewQuality=await validatePreviewImages(previewImages,presentation.slides.length);
-            try{previewQuality.images=await validatePhotoPreviews(previewImages,presentation);}
+            previewQuality=await measureStage('png-validation',()=>validatePreviewImages(previewImages,presentation.slides.length));
+            try{previewQuality.images=await measureStage('photo-validation',()=>validatePhotoPreviews(previewImages,presentation));}
             catch(error){
                 // One bounded conversion repair. Do not regenerate or bill for new images.
                 if(!['PNG_PHOTO_MISSING','PNG_PHOTO_RESOLUTION'].includes(error.code))throw error;
-                previewImages=await convertPdfToImages({pdfPath:pdfResult.pdfPath,outputDirectory:slidesDirectory});
-                previewQuality=await validatePreviewImages(previewImages,presentation.slides.length);
-                previewQuality.images=await validatePhotoPreviews(previewImages,presentation);
+                previewImages=await measureStage('png-conversion-repair',()=>convertPdfToImages({pdfPath:pdfResult.pdfPath,outputDirectory:slidesDirectory}));
+                previewQuality=await measureStage('png-validation',()=>validatePreviewImages(previewImages,presentation.slides.length));
+                previewQuality.images=await measureStage('photo-validation',()=>validatePhotoPreviews(previewImages,presentation));
                 previewQuality.imageRepairRounds=1;
             }
         }

@@ -16,7 +16,10 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
         const temp=file+'.'+randomUUID()+'.tmp';await fs.writeFile(temp,JSON.stringify(value));
         try{for(let attempt=0;;attempt++){
             try{await fs.rename(temp,file);return;}
-            catch(error){if(attempt>=5||!['EPERM','EACCES','EBUSY'].includes(error.code))throw error;await new Promise(resolve=>setTimeout(resolve,10*2**attempt));}
+            // Windows scanners/readers can hold status.json briefly. Preserve
+            // atomic replacement and retry that lock, never delete the last
+            // durable status or rerun the completed AI work because of it.
+            catch(error){if(attempt>=10||!['EPERM','EACCES','EBUSY'].includes(error.code))throw error;await new Promise(resolve=>setTimeout(resolve,Math.min(250,10*2**attempt)));}
         }}finally{await fs.unlink(temp).catch(()=>{});}
     }
     async function load(id){if(!validId(id))throw Object.assign(new Error('Job not found'),{status:404});return JSON.parse(await fs.readFile(filename(id,'status.json'),'utf8'));}

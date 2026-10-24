@@ -1,5 +1,6 @@
 import { generateJsonWithRetry } from './generateJsonWithRetry.mjs';
 import { AiGenerationError } from './responseValidation.mjs';
+import {generationConcurrency,generateIndependent} from './concurrency.mjs';
 
 const string = { type: 'string' };
 const object = properties => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false });
@@ -93,12 +94,13 @@ Deck: ${JSON.stringify(presentation)}`,
         if (!errors.length) return { ...presentation, quality: { status: review.issues.length ? 'completed_with_warnings' : 'completed', reviewed: true, repairRounds: round, coverage: review.coverage },
             warnings: review.issues.map(i => ({ code: 'CONTENT_' + i.code, stage: 'presentation-quality-review', slideNumber: i.slideNumber, message: i.message })) };
         if (round === rounds) { lastReview={...review,issues:errors};break; }
-        for (const n of [...new Set(errors.map(i => i.slideNumber))]) {
+        await generateIndependent([...new Set(errors.map(i => i.slideNumber))],generationConcurrency(options.slideConcurrency??process.env.LEDIFY_SLIDE_CONCURRENCY,4),async n=>{
             const instructions = errors.filter(i => i.slideNumber === n).map(i => i.message+' '+i.repairInstruction).join('\n');
-            const repaired=await repairSlide(presentation.slides[n - 1], instructions);
+            return repairSlide(presentation.slides[n - 1], instructions);
+        },(repaired,n)=>{
             if(repaired.content) Object.assign(presentation.slides[n-1],repaired);
             else presentation.slides[n - 1].content = repaired;
-        }
+        });
         canonicalTitles(presentation);
     }
     throw new AiGenerationError('PRESENTATION_QUALITY_FAILED', 'Presentation quality review still found substantive issues after bounded slide repairs',

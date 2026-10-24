@@ -50,5 +50,5 @@ export function contentBudgetPrompt(schema){
         if(node.items)visit(node.items,`${path}[]`);
     }
     visit(schema,'');
-    return `\nLayout-specific limits override generic word-count guidance. Fit every field on the FIRST attempt. Preserve accuracy; express detail in complementary diagram labels rather than duplicating it in prose. Never truncate terms or invent facts.\n${limits.join('\n')}`;
+    return `\nLayout-specific limits override generic word-count guidance. Fit every field on the FIRST attempt. Preserve accuracy; express detail in complementary diagram labels rather than duplicating it in prose. Never truncate terms or invent facts.${schema.properties?.table?' Tables: use short column labels and terse factual cell phrases, ideally under 24 characters. If exact terminology or necessary detail needs more space, use fewer columns and rows rather than abbreviating scientific terms or omitting facts. Tables are rendered with readable type, not paragraph-sized cells.':''}\n${limits.join('\n')}`;
 }

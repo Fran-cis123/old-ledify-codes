@@ -10,6 +10,7 @@ import { validateRenderContent } from '../../renderer/presentation/professionalL
 import {createImageAssetSession} from './presentationImageAssets.mjs';
 import {imagePolicy} from './imagePolicy.mjs';
 import {planImageCoverage,imageCoverage,photoSignature,requiresAuthenticPhotography} from './imageArtDirection.mjs';
+import {generateIndependent,generationConcurrency} from '../ai/concurrency.mjs';
 
 export function imageDimensions(buffer) {
     if (!Buffer.isBuffer(buffer) || buffer.length > 12 * 1024 * 1024) throw new Error('Image exceeds the byte limit');
@@ -123,13 +124,14 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
     // scientific-looking asset as a substitute for the requested subject.
     if(presentation.slides.some(s=>s.visualRequirement?.role==='background'&&!photos.get(s.slideNumber))) warnings.push({code:'BACKGROUND_LOCAL_FALLBACK',stage:'visual-resolution',message:'The requested background was unavailable; a plain theme background preserves readable content.'});
     let plannedDiagrams=0;
-    for(const original of presentation.slides){
+    await generateIndependent(presentation.slides,generationConcurrency(options.diagramConcurrency??process.env.LEDIFY_DIAGRAM_CONCURRENCY,2),async original=>{
+        const warnings=[];
         const slide={...original},request=slide.visualRequirement || (slide.content?.visualContent ? {role:'foreground',kind:'diagram',required:true,...slide.content.visualContent.visual} : null);
         const resolved=photos.get(slide.slideNumber),photo=Array.isArray(resolved)?resolved.find(Boolean):resolved;
         if(photo){
             slide.photoAsset=photo;slide.photoComposition=photo.artDirection.composition;
             if(Array.isArray(resolved))slide.photoAssets=resolved.filter(Boolean);
-            try{validateRenderContent(slide);slide.visualResolution={status:'resolved',method:photo.generationMethod};slides.push(slide);continue;}
+            try{validateRenderContent(slide);slide.visualResolution={status:'resolved',method:photo.generationMethod};return {slide,warnings};}
             catch(error){
                 options.onDiagnostic?.({slideNumber:slide.slideNumber,message:error.message,field:error.field});
                 delete slide.photoAsset;delete slide.photoAssets;delete slide.photoComposition;
@@ -144,12 +146,12 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
             if(['data-chart','table'].includes(slide.slideType)){
                 slide.visualResolution={status:'fallback',method:'native-data-visual'};
                 warnings.push({code:'VISUAL_NATIVE_ALTERNATIVE',stage:'visual-resolution',slideNumber:slide.slideNumber,message:'The supplied data is communicated with an editable native chart/table; the additional requested illustration is not used.'});
-                slides.push(slide);continue;
+                return {slide,warnings};
             }
             if(['title','section-divider'].includes(slide.slideType)){
                 slide.visualResolution={status:'unresolved',method:'typographic-cover'};
                 warnings.push({code:'VISUAL_UNRESOLVED',stage:'visual-resolution',slideNumber:slide.slideNumber,message:'The cover uses a typographic composition; the requested foreground illustration remains unavailable.'});
-                slides.push(slide);continue;
+                return {slide,warnings};
             }
             const description=[slide.title,request?.description,request?.searchQuery].filter(Boolean).join(' ');
             const catalog=diagramLibrary.find(asset=>asset.matches.test(description));
@@ -193,8 +195,8 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
                 }
             }
         }
-        slides.push(slide);
-    }
+        return {slide,warnings};
+    },value=>{slides.push(value.slide);warnings.push(...value.warnings);});
     for(const slide of slides) {
         // Visuals can change geometry after AI-stage fit validation. Preserve
         // all approved text by removing optional artwork before final rendering.
