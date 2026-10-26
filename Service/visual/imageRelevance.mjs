@@ -6,6 +6,7 @@ const domains={
     marine:/\b(?:marine|ocean|sea turtles?|coral|whales?|dolphins?|sharks?|dugongs?|vaquitas?|reefs?)\b/i,
     agriculture:/\b(?:agricultur\w*|farm\w*|crops?|tractors?|irrigation|harvest\w*|agronom\w*)\b/i,
     renewable:/\b(?:renewable|solar|photovoltaic|wind (?:energy|power|turbines?)|hydroelectric|geothermal|clean energy)\b/i,
+    finance:/\b(?:financ\w*|banking|investment|portfolio diversification|financial planning|business district)\b/i,
     medicalTechnology:/\b(?:healthcare technology|medical technolog\w*|medical devices?|MRI|CT scanner|ultrasound|radiolog\w*|diagnostic imaging|surgical robot|telemedicine|patient monitor\w*)\b/i,
     laboratory:/\b(?:laborator\w*|pipett\w*|biotech\w*|pharmaceutical)\b/i
 };
@@ -45,6 +46,7 @@ export function evaluateImageRelevance(record,target={}){
     const localWords=local.toLowerCase().match(/[\p{L}]{4,}/gu)||[];
     const namedSubjectMatch=!localDomains.length&&!primaryDomains.length&&localWords.length>0&&localWords.every(word=>text.toLowerCase().includes(word));
     const domainMatch=!desired.length||desired.some(name=>actual.includes(name))||namedSubjectMatch;
+    const campusOnly=desired.includes('medicalTechnology')&&/\b(?:university|college|campus|facade|entrance|building)\b/i.test(text)&&! /\b(?:MRI|scanner|ultrasound|medical device|patient monitor|surgical robot)\b/i.test(text)&&! /\b(?:campus|university|college|building|exterior)\b/i.test(local||query);
     // Use the specific placement rather than a paragraph listing many subjects.
     const sceneText=target.sectionTopic||target.slideTitle||overall||query;
     const requestedScenes=Object.entries(scenes).filter(([,pattern])=>pattern.test(sceneText));
@@ -54,15 +56,15 @@ export function evaluateImageRelevance(record,target={}){
     const words=[...new Set((query||local||overall).toLowerCase().match(/[\p{L}]{4,}/gu)||[])].filter(word=>!['image','images','photo','photos','photograph','photography','editorial','beautiful','premium','modern','professional','illustrative','concept','with','from','this','that'].includes(word));
     const shared=words.filter(word=>text.toLowerCase().includes(word)).length;
     const lexicalMatch=desired.length>0||shared>=Math.min(2,words.length)&&words.length>0&&shared/words.length>=.3;
-    return {accepted:domainMatch&&sceneMatch&&lexicalMatch&&!excluded,applicable:true,
-        desiredDomains:desired,candidateDomains:actual,reason:excluded?'EXCLUDED_SUBJECT':!domainMatch||!lexicalMatch?'TOPIC_MISMATCH':!sceneMatch?'SECTION_MISMATCH':'METADATA_MATCH',
+    return {accepted:domainMatch&&sceneMatch&&lexicalMatch&&!excluded&&!campusOnly,applicable:true,
+        desiredDomains:desired,candidateDomains:actual,reason:excluded?'EXCLUDED_SUBJECT':campusOnly?'INSTITUTION_EXTERIOR_NOT_TECHNOLOGY':!domainMatch||!lexicalMatch?'TOPIC_MISMATCH':!sceneMatch?'SECTION_MISMATCH':'METADATA_MATCH',
         method:'independent-metadata',limits:'Metadata relevance is not a visual or factual certification.'};
 }
 export function relevantSearchQuery(target={}){
     const local=target.sectionTopic||target.slideTitle||'';
     const topic=target.topic||target.subject||target.query||target.searchQuery||'';
     const names=imageTopicDomains(topic+' '+local);
-    const anchors={computing:'artificial intelligence computer',architecture:'residential architecture',marine:'marine wildlife',agriculture:'agriculture farming',renewable:'renewable energy',medicalTechnology:'medical technology'};
+    const anchors={computing:'artificial intelligence computer',architecture:'residential architecture',marine:'marine wildlife',agriculture:'agriculture farming',renewable:'renewable energy',medicalTechnology:'medical technology',finance:'financial planning'};
     return [local,anchors[names[0]]||topic].filter(Boolean).join(' ').replace(/[^\p{L}\p{N}\s-]/gu,' ').replace(/\s+/g,' ').trim().slice(0,160);
 }
 const safe=value=>String(value||'').replace(/https?:\/\/\S+/gi,'[URL]').replace(/(?:api[_-]?key|password|token)\s*[:=]\s*\S+/gi,'[REDACTED]').replace(/[\r\n]/g,' ').slice(0,240);

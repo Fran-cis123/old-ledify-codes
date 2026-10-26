@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
 import {resolveWebpageAssets} from '../webpageAssetService.mjs';
 import {optimizeWebsiteImage} from './imageOptimization.mjs';
 import {downloadWebsiteImage,websiteImageProviders} from './imageProviders.mjs';
@@ -8,6 +9,7 @@ import {userWebsiteBrief} from './websiteBrief.mjs';
 import {acquireProviderImage} from './providerCache.mjs';
 import {imagePolicy,planWebsiteImages} from './imageStrategy.mjs';
 import {reviewImageCandidate} from './imageReview.mjs';
+import {rankCuratedPhotos} from './curatedSelection.mjs';
 import {relevanceDiagnostic} from '../visual/imageRelevance.mjs';
 import {generationConcurrency,generateIndependent} from '../ai/concurrency.mjs';
 import {classifyImageError,imageBackoff,imageDiagnostic} from '../visual/imageAssetService.mjs';
@@ -79,7 +81,7 @@ export async function acquireWebsiteImages(page,context={},options={}){
                         if(provider.id==='gemini-image')generatedCalls++;
                         const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('Image acquisition timed out'));},Math.min(policy.timeoutMs,remaining));});
                         const record=await Promise.race([acquireProviderImage(provider,{...target,signal:controller.signal},{cacheRoot:options.optimization?.cacheRoot}),timeout]);
-                        if(record){resolved=await optimize({...record,...target,alt:record.alt||'',buffer:undefined},record.buffer,target);}
+                        if(record){resolved=await optimize({...record,...target,alt:record.source==='Google Gemini'?target.alt:record.alt||'',buffer:undefined},record.buffer,target);}
                         diagnostics.push(imageDiagnostic({generationType:'webpage',provider:provider.id,model:provider.model,target:target.role,status:resolved?'resolved':'empty',reasonCode:resolved?undefined:'NO_ELIGIBLE_IMAGE',attempt:attempt+1,elapsedMs:performance.now()-attemptStarted,storage:resolved?'optimized':'skipped',validation:resolved?'passed':'rejected',cacheHit:record?.providerCacheHit},options.logger));
                         break;
                     }catch(error){const info=classifyImageError(error);clearTimeout(timer);logImage({provider:provider.id,model:provider.model,target:target.role,status:'failed',attempt:attempt+1,...info,elapsedMs:performance.now()-attemptStarted});warnings.push({code:'WEBPAGE_IMAGE_PROVIDER_UNAVAILABLE',provider:provider.id,target:target.role,reasonCode:info.reasonCode,message:'An image provider failed or exceeded its budget; the next authorized source is used.'});if(['IMAGE_INVALID_CREDENTIALS','IMAGE_ACCESS_DENIED','IMAGE_MODEL_UNAVAILABLE','IMAGE_REQUEST_REJECTED'].includes(info.reasonCode))disabled.add(provider.id);if(!info.retryable||attempt>=policy.retries||!await imageBackoff(error,attempt,{remainingMs:policy.totalMs-(Date.now()-started),sleep:options.sleep}))break;}
@@ -96,13 +98,20 @@ export async function acquireWebsiteImages(page,context={},options={}){
             for(const target of requests){
                 if(selected.length>=policy.maxAssets)break;
                 if(selected.some(asset=>matches(asset,target)))continue;
-                const ranked=entries.map(entry=>{const review=reviewImageCandidate(entry,target);if(!review.accepted)relevanceDiagnostic(entry,target,review,options.relevanceLogger);return {entry,review};}).filter(candidate=>candidate.review.accepted);
+                let rejected=0;
+                const ranked=rankCuratedPhotos(entries,target,{onRejected:(entry,review)=>{if(rejected++<3)relevanceDiagnostic(entry,target,review,options.relevanceLogger);}});
+                if(rejected>3)logImage({provider:'bundled-catalog',target:target.role,status:'candidates-filtered',rejected});
                 if(!ranked.length)continue;
                 const root=await fs.realpath(path.dirname(options.curatedManifest || bundledCatalog));
                 for(const {entry} of ranked){
+                    if(selected.some(asset=>asset.file===entry.file))continue;
+                    try{
                     const filename=await fs.realpath(path.join(root,entry.file));
                     if(!filename.startsWith(root+path.sep))throw new Error('Invalid curated asset path');
-                    if(await optimize({...entry,...target,alt:entry.alt},await fs.readFile(filename),target))break;
+                    const bytes=await fs.readFile(filename);
+                    if(entry.sha256&&createHash('sha256').update(bytes).digest('hex')!==entry.sha256)throw new Error('Bundled image checksum mismatch');
+                    if(await optimize({...entry,...target,alt:entry.alt},bytes,target))break;
+                    }catch{warnings.push({code:'WEBPAGE_CURATED_IMAGE_UNAVAILABLE',message:'A local fallback image is missing or invalid; another eligible photo is tried.'});}
                 }
             }
         }catch{warnings.push({code:'WEBPAGE_CURATED_IMAGE_UNAVAILABLE',message:'The local fallback image could not be loaded.'});}

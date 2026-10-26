@@ -6,6 +6,7 @@ import {imagePolicy} from './imagePolicy.mjs';
 import {commonsMetadata} from './commonsMetadata.mjs';
 import {imageDiagnostic,classifyImageError} from './imageAssetService.mjs';
 import {evaluateImageRelevance,relevanceDiagnostic} from './imageRelevance.mjs';
+import {bundledPhotoSearch} from './bundledPhotoSearch.mjs';
 
 const plain=value=>load(String(value||'')).text().replace(/\s+/g,' ').trim().slice(0,1600);
 export function stockSearchQueries(query,{slideTitle,subject}={}){
@@ -88,7 +89,7 @@ export async function commonsSearch(request,{find=commonsCandidates,download=fet
 
 export function configuredImageProviders(env = process.env,{clientFactory}={}) {
     const policy=imagePolicy(env),model=googleImageModel(env,'PRESENTATION_IMAGE_MODEL');
-    const providers={identity:`${policy.stockProvider}:${policy.generationProvider}:${model||'no-image-model'}:google-image-v1`,
+    const providers={identity:`${policy.stockProvider}:${policy.generationProvider}:${model||'no-image-model'}:google-image-v1:bundled-v1`,
         validateSearchAsset:(request,asset)=>evaluateImageRelevance(asset,request).accepted&&(asset.source!=='Wikimedia Commons'||candidateSuitability(request.searchQuery,asset,{partial:true})>=0),
         ...(env.PEXELS_API_KEY&&['auto','pexels'].includes(policy.stockProvider) ? { search: async request => {
             const url = new URL('https://api.pexels.com/v1/search');
@@ -117,6 +118,7 @@ export function configuredImageProviders(env = process.env,{clientFactory}={}) {
     if(['auto','commons'].includes(policy.stockProvider)){
         const first=providers.search;
         providers.search=async request=>{
+            if(policy.stockProvider==='auto')try{const local=await bundledPhotoSearch(request);if(local)return local;}catch{ /* Continue to configured online sources. */ }
             if(first)try{const asset=await first(request);if(asset)return asset;}catch(error){imageDiagnostic({generationType:'presentation',provider:'pexels',status:'fallback',...classifyImageError(error)});}
             return commonsSearch(request);
         };

@@ -88,7 +88,7 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                         controllers.add(controller);
                         try{
                             const candidate=method==='user'?direct:await Promise.race([
-                                providers[method]({...brief,attempt,excludeAssetIds:[...used],signal:controller.signal,resolution:policy.resolution}),
+                                providers[method]({...brief,attempt,excludeAssetIds:[...used],excludeSourceChecksums:[...usedSources],signal:controller.signal,resolution:policy.resolution}),
                                 new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('Image provider timed out'));},Math.min(policy.timeoutMs,Math.max(1,deadline-Date.now())));})]);
                             if(!candidate){record({slideNumber:slide.slideNumber,method,status:'empty',reasonCode:'NO_ELIGIBLE_IMAGE',attempt:attempt+1});return {stop:true};}
                             if(brief.authenticPhotoOnly&&(candidate.generationMethod==='ai-generated'||candidate.synthetic||candidate.mediaKind&&candidate.mediaKind!=='photograph'))throw new Error('Authentic photography required; synthetic or non-photographic asset rejected');

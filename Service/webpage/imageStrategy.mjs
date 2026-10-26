@@ -9,9 +9,15 @@ export function planWebsiteImages(page,context={}){
     const requireImages=/\b(?:images?|imagery|photographs?|photography|pictures?)\b/i.test(instructions)&&! /\b(?:no|without|avoid)\s+(?:images?|pictures?|photographs?|photography)\b/i.test(instructions);
     const everySection=/\b(?:every|each|all)\s+(?:content\s+)?sections?\b[^.!?\n]{0,100}\b(?:images?|pictures?|photographs?)\b|\b(?:images?|pictures?|photographs?)\b[^.!?\n]{0,70}\b(?:every|each|all)\s+sections?\b/i.test(instructions);
     const style=[page.websiteBrief?.photography.style,page.websiteBrief?.photography.lighting,page.websiteBrief?.photography.temperature].filter(Boolean).join('; ')||'natural editorial';
-    const subjects=page.websiteBrief?.photography.subjects||[];
+    let subjects=page.websiteBrief?.photography.subjects||[];
     const central=centralImageSubject(page);
-    const hero={role:'hero',query:central.concepts.length?central.concepts.join(' ')+' '+(page.designBrief.imageDirection||''):central.description+' '+(page.designBrief.imageDirection||''),centralConcepts:central.concepts,alt:`Illustrative imagery for ${page.brandName}`,aspectRatio:'16:9',style,purpose:'Communicate the central subject: '+central.description,lighting:page.websiteBrief?.photography.lighting||'natural',temperature:page.websiteBrief?.photography.temperature||'neutral',focalPoint:page.websiteBrief?.photography.crop||'center',method:'authorized-source-or-configured-generation'};
+    let direction=page.designBrief.imageDirection||'';
+    if(central.concepts.includes('finance')&&/geometric|architectural forms|abstract/i.test(direction)&&! /\b(?:abstract|geometric)[^.!?\n]{0,45}\b(?:imagery|images?|hero)\b/i.test(instructions)){
+        direction='Financial planning workspace with a calculator and organized anonymized planning documents. No readable account details, fabricated returns or geometric placeholder blocks.';subjects=[direction];
+    }
+    const names=central.concepts.map(name=>name==='medicalTechnology'?'medical technology':name);
+    const altSubject=(direction.split(/[.!?]/)[0]||page.inferredContext?.topic||page.title).slice(0,150);
+    const hero={role:'hero',query:names.length?names.join(' ')+' '+direction:central.description+' '+direction,centralConcepts:central.concepts,alt:`Illustrative ${altSubject}`,aspectRatio:'16:9',style,purpose:'Communicate the central subject: '+central.description,lighting:page.websiteBrief?.photography.lighting||'natural',temperature:page.websiteBrief?.photography.temperature||'neutral',focalPoint:page.websiteBrief?.photography.crop||'center',method:'authorized-source-or-configured-generation'};
     const planned=(page.imagePlan||[]).flatMap(image=>{
         const section=page.sections[image.sectionIndex],item=section?.items[image.itemIndex];
         if(image.role!=='hero'&&!section||image.role==='item'&&!item)return [];

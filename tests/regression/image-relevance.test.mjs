@@ -52,7 +52,7 @@ test('optional irrelevant hero is omitted; required hero remains explicitly inco
  const buffer=await fs.readFile('assets/webpage/curated/laboratory.jpg');
  for(const required of [false,true]){
   base.imagePlan[0].required=required;
-  const result=await acquireWebsiteImages(base,{}, {optimization:{cacheRoot:root},providers:[{id:'fixture',acquire:async()=>({...lab,buffer})}],logger:()=>{},relevanceLogger:()=>{}});
+  const result=await acquireWebsiteImages(base,{}, {curated:false,optimization:{cacheRoot:root},providers:[{id:'fixture',acquire:async()=>({...lab,buffer})}],logger:()=>{},relevanceLogger:()=>{}});
   assert.equal(result.page.visualAssets.hero,undefined);assert.equal(Object.keys(result.assets).length,0);
   assert.equal(result.page.imageValidation.status,required?'incomplete':'passed');
  }
