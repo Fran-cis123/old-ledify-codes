@@ -218,6 +218,17 @@ const generate = async (
                 incomplete?{...rendererReadyPresentation,imageCoveragePlan:{...rendererReadyPresentation.imageCoveragePlan,required:false}}:rendererReadyPresentation, options.preview
             );
         const imageValidation=rendererReadyPresentation.imageCoveragePlan.required&&(preview.stages.pdf!=='completed'||preview.stages.png!=='completed')?{...rendererReadyPresentation.imageValidation,status:'incomplete',rendering:'unverified'}:rendererReadyPresentation.imageValidation;
+        // Image completeness describes quality, not whether usable artifacts can
+        // be delivered. Best-effort requests retain that evidence as warnings.
+        const imagesUnmet=imageValidation?.status==='incomplete';
+        const strictImages=rendererReadyPresentation.imageCoveragePlan.enforcement==='strict';
+        const warnings=[...rendererReadyPresentation.warnings,...preview.warnings];
+        if(imagesUnmet&&!warnings.some(w=>w.code==='IMAGE_REQUIREMENTS_UNMET'))warnings.push({
+            code:'IMAGE_REQUIREMENTS_UNMET',stage:'image-validation',
+            message:'Presentation delivered with image quality warnings. Review missing images and preview availability before use.',
+            missingSlides:imageValidation.requiredMissing||[],
+            ...(imageValidation.rendering?{rendering:imageValidation.rendering}:{})
+        });
 
 
         // =================================================
@@ -228,9 +239,9 @@ const generate = async (
         return finish({
 
             ...aiResult,
-            status: imageValidation?.status==='incomplete'?'incomplete':preview.status === 'completed' && rendererReadyPresentation.warnings.length ? 'completed_with_warnings' : preview.status,
+            status: imagesUnmet&&strictImages?'incomplete':preview.status === 'completed' && warnings.length ? 'completed_with_warnings' : preview.status,
             imageValidation,
-            warnings: [...rendererReadyPresentation.warnings, ...preview.warnings],
+            warnings,
 
             resolvedContext,
 
