@@ -34,6 +34,16 @@ export function stockSearchQueries(query,{slideTitle,subject}={}){
 export function candidateSuitability(query,asset,{partial=false}={}){
     const title=decodeURIComponent((asset.originalUrl||'').split('File:')[1]||'').replace(/_/g,' ').toLowerCase(),description=(asset.description||'').toLowerCase(),categories=(asset.categories||'').toLowerCase();
     const combined=[title,description,categories].join(' '),historical=/histor|archive|vintage|19[0-5]\d/.test(query.toLowerCase());
+    // Match the requested scene itself, not incidental residential vocabulary.
+    for(const [requested,evidence] of [
+        [/\bspa\b/i,/\b(?:spa|wellness|sauna|plunge pool)\b/i],
+        [/\bpenthouse\b/i,/\bpenthouse\b/i],
+        [/\bwaterfront\b/i,/\b(?:waterfront|ocean|coastal|seafront|lakeside|riverfront)\b/i],
+        [/\bliving room\b/i,/\bliving room\b/i],
+        [/\b(?:mansion|villa)\b/i,/\b(?:mansions?|villas?)\b/i],
+        [/\b(?:smart home|home automation)\b/i,/\b(?:smart home|home automation|home control|touchscreen|thermostat)\b/i]
+    ])if(requested.test(query)&&!evidence.test(combined))return -1;
+    if(/\b(?:modern|contemporary)\b/i.test(query)&&/\b(?:17\d\d|18\d\d|colonial|historic|baroque|georgian)\b/i.test(combined)&&!/\b(?:modern|modernist|contemporary)\b/i.test(combined))return -1;
     if(/\b(?:cars?|vehicles?|automotive|automobiles?|sedans?|suvs?|chassis|dashboard)\b/i.test(query)){
         if(!/\b(?:cars?|vehicles?|automotive|automobiles?|sedans?|suvs?|chassis|dashboard)\b/i.test(combined))return -1;
         if(!historical&&/\b(?:scrap|scrapped|compacted|wreck|wrecked|crash|crashed|antique|vintage|193\d|194\d)\b/i.test(combined))return -1;
@@ -61,7 +71,7 @@ export async function commonsCandidates(query,{signal,limit=6}={}){
         const attributionRequired=m.AttributionRequired?.value==='true'||/^CC BY/.test(license);
         if(/^CC BY/.test(license)&&!/^https?:\/\/creativecommons.org\/licenses\//.test(m.LicenseUrl?.value||''))return [];
         const classification=[page.title,m.Categories?.value,m.Credit?.value,description].join(' ');
-        const mediaKind=/AI.generated|AI generated|Stable Diffusion|DALL.E|Midjourney|Qwen.image|Flux.1/i.test(classification)?'synthetic':/BioArt|illustration|diagram|drawing|rendering|3D model|screenshot|\blogo\b/i.test(classification)?'illustration':'photograph';
+        const mediaKind=/AI.generated|AI generated|Stable Diffusion|DALL.E|Midjourney|Qwen.image|Flux.1/i.test(classification)?'synthetic':/BioArt|illustration|diagram|schematic|drawing|rendering|3D model|screenshot|\blogo\b/i.test(classification)?'illustration':'photograph';
         return [{source:'Wikimedia Commons',creator,license,licenseUrl:m.LicenseUrl?.value||'https://creativecommons.org/publicdomain/mark/1.0/',mediaKind,creationYear:Number(plain(m.DateTimeOriginal?.value).match(/\b(?:18|19|20)\d{2}\b/)?.[0])||null,
             sourceType:'licensed-stock',assetId:String(page.pageid),originalUrl:info.descriptionurl,originalFileUrl:info.url,downloadUrl,description,categories:plain(m.Categories?.value).replace(/\|/g,' '),
             attributionRequired,attribution:`${creator} — ${license}. Source: ${info.descriptionurl}. Changes: resized, compressed and cropped by Ledify.`,generationMethod:'licensed-search',width:info.width,height:info.height}];
@@ -90,7 +100,7 @@ export async function commonsSearch(request,{find=commonsCandidates,download=fet
 export function configuredImageProviders(env = process.env,{clientFactory}={}) {
     const policy=imagePolicy(env),model=googleImageModel(env,'PRESENTATION_IMAGE_MODEL');
     const providers={identity:`${policy.stockProvider}:${policy.generationProvider}:${model||'no-image-model'}:google-image-v1:bundled-v1`,
-        validateSearchAsset:(request,asset)=>evaluateImageRelevance(asset,request).accepted&&(asset.source!=='Wikimedia Commons'||candidateSuitability(request.searchQuery,asset,{partial:true})>=0),
+        validateSearchAsset:(request,asset)=>evaluateImageRelevance(asset,request).accepted&&(!asset.source?.startsWith('Wikimedia Commons')||candidateSuitability(request.searchQuery,asset,{partial:asset.source==='Wikimedia Commons'})>=0),
         ...(env.PEXELS_API_KEY&&['auto','pexels'].includes(policy.stockProvider) ? { search: async request => {
             const url = new URL('https://api.pexels.com/v1/search');
             url.search = new URLSearchParams({ query: request.searchQuery, per_page: '4', orientation: 'landscape', size: 'large' });
@@ -118,7 +128,7 @@ export function configuredImageProviders(env = process.env,{clientFactory}={}) {
     if(['auto','commons'].includes(policy.stockProvider)){
         const first=providers.search;
         providers.search=async request=>{
-            if(policy.stockProvider==='auto')try{const local=await bundledPhotoSearch(request);if(local)return local;}catch{ /* Continue to configured online sources. */ }
+            if(policy.stockProvider==='auto')try{const local=await bundledPhotoSearch(request,{acceptCandidate:asset=>candidateSuitability(request.searchQuery,asset)>=0});if(local)return local;}catch{ /* Continue to configured online sources. */ }
             if(first)try{const asset=await first(request);if(asset)return asset;}catch(error){imageDiagnostic({generationType:'presentation',provider:'pexels',status:'fallback',...classifyImageError(error)});}
             return commonsSearch(request);
         };

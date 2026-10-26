@@ -1364,7 +1364,11 @@ let generatedContent = isPresentation && options.initialPresentation ? structure
 if (isPresentation) {
     plannedSlides=generatedContent.slides.map(({slideNumber,title,objective})=>({slideNumber,title,objective}));
     const plannedPictures=planImageCoverage(generatedContent,{...context,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')});
-    for(const slide of generatedContent.slides)slide.imageLayoutPlanned=!!plannedPictures.slides.find(s=>s.slideNumber===slide.slideNumber)?.imageRequirement;
+    for(const slide of generatedContent.slides){
+        const planned=plannedPictures.slides.find(s=>s.slideNumber===slide.slideNumber);
+        slide.imageLayoutPlanned=!!planned?.imageRequirement;
+        slide.visualRequirement=planned.visualRequirement;
+    }
     canonicalTitles(generatedContent);
     const contentProperties = outputSchema.properties.slides.items.properties.content.properties;
     contentProperties.visualContent.properties.visual.properties.diagram = diagramSchema;
@@ -1382,14 +1386,14 @@ if (isPresentation) {
     const generateSlide = async (slide, repairInstruction = '') => {
         const contentKey = SLIDE_TYPE_CONTENT_MAP[slide.slideType];
         const imageContext={...context,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')};
-        const usesImage=!!planImageCoverage({slides:[slide]},imageContext).slides[0].imageRequirement;
+        const usesImage=slide.imageLayoutPlanned??!!planImageCoverage({slides:[slide]},imageContext).slides[0].imageRequirement;
         const baseSlideSchema = {
             type: Type.OBJECT,
             properties: { [contentKey]: contentProperties[contentKey] },
             required: [contentKey], additionalProperties: false
         };
         const slideSchema=usesImage?imageSlideSchema(baseSlideSchema):baseSlideSchema;
-        return run({
+        const content=await run({
             stage: 'slide-content-generation', slideNumber: slide.slideNumber,
             schema: slideSchema, outputType,
             validate: content => {
@@ -1407,9 +1411,12 @@ if (isPresentation) {
                 model: process.env.GEMINI_SLIDE_MODEL || 'gemini-3.5-flash',
                 contents: buildSlidePrompt(input, context, generatedContent, slide, previous,usesImage) + contentBudgetPrompt(slideSchema) + (repairInstruction ? `\nTargeted quality repair; preserve all correct content and the same canonical structure:\n${repairInstruction}` : ''),
                 config: { responseMimeType: 'application/json', responseJsonSchema: slideSchema,
-                    maxOutputTokens: 4096 }
+                    maxOutputTokens: 4096,
+                    thinkingConfig:{thinkingBudget:Math.max(128,Math.min(8192,Number(process.env.GEMINI_SLIDE_THINKING_BUDGET)||1024))} }
             }
         });
+        await options.onSlideReady?.({...slide,content},generatedContent);
+        return content;
     };
     await generateInBatches(generatedContent.slides,
         generationConcurrency(options.slideConcurrency??process.env.LEDIFY_SLIDE_CONCURRENCY),

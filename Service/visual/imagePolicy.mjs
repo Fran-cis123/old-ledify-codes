@@ -15,6 +15,7 @@ export function imagePolicy(env=process.env){
         concurrency:integer(env.PRESENTATION_IMAGE_CONCURRENCY,2,1,3),
         retries:integer(env.PRESENTATION_IMAGE_RETRIES,1,0,2),
         timeoutMs:integer(env.PRESENTATION_IMAGE_TIMEOUT_MS,60000,1000,60000),
+        stockSearchTimeoutMs:integer(env.PRESENTATION_STOCK_SEARCH_TIMEOUT_MS,12000,1000,30000),
         deadlineMs:integer(env.PRESENTATION_IMAGE_DEADLINE_MS,180000,1000,300000),
         estimatedUnitCost:amount(env.PRESENTATION_IMAGE_ESTIMATED_UNIT_COST,0),
         maxEstimatedCost:amount(env.PRESENTATION_IMAGE_MAX_ESTIMATED_COST,0),

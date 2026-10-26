@@ -50,7 +50,14 @@ const generate = async (
     // =====================================================
 
     const early=outputType==='presentation'&&options.prefetchImages!==false?presentationPrefetch({inputType,input,context,options:options.visuals}):null;
-    const aiOptions={...options.ai,onSlideCheckpoint:async deck=>{await options.ai?.onSlideCheckpoint?.(deck);early?.update(deck);}};
+    const aiOptions={...options.ai,
+        onSlideReady:async(slide,deck)=>{
+            await options.ai?.onSlideReady?.(slide,deck);
+            // A locally validated later slide can start its image while an
+            // earlier text call is still running. Durable checkpoints stay ordered.
+            early?.update({...deck,slides:deck.slides.map(current=>current.slideNumber===slide.slideNumber?slide:current)});
+        },
+        onSlideCheckpoint:async deck=>{await options.ai?.onSlideCheckpoint?.(deck);early?.update(deck);}};
     let aiResult;
     try{aiResult = options.completedContent || await measureStage('content',()=>aiService(
         inputType,

@@ -56,7 +56,22 @@ export function planImageCoverage(presentation,context={}){
     for(const s of slides)if(excluded.has(s.slideNumber)&&['photo','illustration','texture'].includes(s.visualRequirement?.kind))s.visualRequirement={role:'none',kind:'none',required:false,description:'',searchQuery:'',altText:''};
     const instructions=[context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].join(' ');
     const all=/\b(?:every|each|all)\s+(?:single\s+)?slides?\b[^.!?\n]{0,120}\b(?:images?|pictures?|photo(?:graph(?:y|s|ic)?)?)\b|\b(?:images?|pictures?|photographs?)\b[^.!?\n]{0,70}\b(?:every|each|all)\s+slides?\b/i.test(instructions);
-    const eligible=slides.filter(s=>!excluded.has(s.slideNumber)&&(all||['photo','illustration'].includes(s.visualRequirement?.kind)));
+    let eligible=slides.filter(s=>!excluded.has(s.slideNumber)&&(all||['photo','illustration'].includes(s.visualRequirement?.kind)));
+    const selective=/\b(?:images?|pictures?|photographs?|photos?|imagery)\b[^.!?\n]{0,50}\b(?:selectively|sparingly)\b|\b(?:selective|sparse)\s+(?:images?|pictures?|photographs?|photos?|imagery)\b/i.test(instructions);
+    const explicitCount=/\b(?:exactly|at least|minimum(?: of)?)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:\w+\s+){0,2}(?:images?|pictures?|photographs?|photos?)\b/i.test(instructions);
+    if(selective&&!all&&!explicitCount){
+        const limit=Math.max(1,Math.ceil(slides.length/3));
+        // Preserve the cover, then spread supporting pictures across the deck.
+        const cover=eligible.find(s=>s.slideType==='title')||eligible[0];
+        const chosen=cover?[cover]:[];
+        while(chosen.length<Math.min(limit,eligible.length)){
+            const remaining=eligible.filter(s=>!chosen.includes(s));
+            remaining.sort((a,b)=>Math.min(...chosen.map(s=>Math.abs(b.slideNumber-s.slideNumber)))-Math.min(...chosen.map(s=>Math.abs(a.slideNumber-s.slideNumber))));
+            chosen.push(remaining[0]);
+        }
+        eligible=chosen;
+        for(const s of slides)if(!eligible.includes(s)&&['photo','illustration','texture'].includes(s.visualRequirement?.kind))s.visualRequirement={role:'none',kind:'none',required:false,description:'',searchQuery:'',altText:''};
+    }
     const target=noPhotos?0:eligible.length;
     for(const s of slides){
         if(noPhotos||!eligible.includes(s)){delete s.imageRequirement;delete s.photoAsset;delete s.photoAssets;delete s.photoComposition;continue;}

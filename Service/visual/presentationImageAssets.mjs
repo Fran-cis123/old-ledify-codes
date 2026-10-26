@@ -60,7 +60,7 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                 if(method!=='user'&&!providers[method])continue;
                 // Exact scientific diagrams may never be replaced by synthetic pictures.
                 if(method==='generate'&&(brief.kind==='diagram'||/precise anatomy|histolog|diagnostic (?:scan|image)|radiograph/i.test(brief.description)))continue;
-                const identity=method==='user'?direct.assetId||'user':(providers.identity||'injected-provider')+(method==='search'?':licensed-search-v2':'');
+                const identity=method==='user'?direct.assetId||'user':(providers.identity||'injected-provider')+(method==='search'?':licensed-search-v3':'');
                 const cacheKey=createHash('sha256').update(JSON.stringify({version:2,brief,identity,method,quality:policy.quality})).digest('hex');
                 const cachePath=path.join(root,cacheKey+'.json');
                 if(method!=='user')try{
@@ -84,12 +84,14 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                             if(deadline-Date.now()<Math.min(1000,policy.timeoutMs/10)){record({slideNumber:slide.slideNumber,method,status:'skipped',reasonCode:'INSUFFICIENT_IMAGE_TIME'});return {stop:true};}
                         if(method==='generate'&&deadline-Date.now()<Math.min(10000,policy.timeoutMs/2)){record({slideNumber:slide.slideNumber,method,status:'skipped',reasonCode:'INSUFFICIENT_GENERATION_TIME'});return {stop:true};}
                         if(method==='generate'&&!budget.reserve()){record({slideNumber:slide.slideNumber,method,status:'skipped',reasonCode:'GENERATION_BUDGET_UNAVAILABLE'});return {stop:true};}
+                        const searchTimeout=policy.stockSearchTimeoutMs||12000;
+                        const attemptTimeout=method==='search'?Math.min(policy.timeoutMs,searchTimeout):policy.timeoutMs;
                         const controller=new AbortController(),started=Date.now();let timer,reservation;
                         controllers.add(controller);
                         try{
                             const candidate=method==='user'?direct:await Promise.race([
-                                providers[method]({...brief,attempt,excludeAssetIds:[...used],excludeSourceChecksums:[...usedSources],signal:controller.signal,resolution:policy.resolution}),
-                                new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('Image provider timed out'));},Math.min(policy.timeoutMs,Math.max(1,deadline-Date.now())));})]);
+                                providers[method]({...brief,attempt,...(method==='search'?{maxSearchQueries:3}:{}),excludeAssetIds:[...used],excludeSourceChecksums:[...usedSources],signal:controller.signal,resolution:policy.resolution}),
+                                new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('Image provider timed out'));},Math.min(attemptTimeout,Math.max(1,deadline-Date.now())));})]);
                             if(!candidate){record({slideNumber:slide.slideNumber,method,status:'empty',reasonCode:'NO_ELIGIBLE_IMAGE',attempt:attempt+1});return {stop:true};}
                             if(brief.authenticPhotoOnly&&(candidate.generationMethod==='ai-generated'||candidate.synthetic||candidate.mediaKind&&candidate.mediaKind!=='photograph'))throw new Error('Authentic photography required; synthetic or non-photographic asset rejected');
                             if(method==='search'){

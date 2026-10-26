@@ -33,6 +33,25 @@ test('ten-slide AI generation overlaps bounded calls while preserving canonical 
     assert.equal(result.generatedContent.quality.reviewed,true);
 });
 
+test('validated out-of-order slides notify image prefetch before ordered checkpoints advance',async()=>{
+ const {client}=presentationLatencyClient(1),original=client.models.generateContent;
+ let release;const gate=new Promise(resolve=>{release=resolve;});const ready=[],checkpoints=[],budgets=[];
+ client.models.generateContent=async request=>{
+  const keys=Object.keys(request.config.responseJsonSchema.properties);
+  if(keys.includes('titleContent'))await gate;
+  if(!keys.includes('strategyId')&&!keys.includes('coverage'))budgets.push(request.config.thinkingConfig?.thinkingBudget);
+  return original(request);
+ };
+ await aiService('prompt','Create exactly 10 slides explaining source review.','presentation',{}, {
+  client,logger:()=>{},slideConcurrency:4,
+  onSlideReady:async slide=>{ready.push(slide.slideNumber);assert.ok(slide.content);if(slide.slideNumber===2){assert.ok(!checkpoints.some(numbers=>numbers.includes(2)));release();}},
+  onSlideCheckpoint:async deck=>checkpoints.push(deck.slides.filter(s=>s.content).map(s=>s.slideNumber))
+ });
+ assert.ok(ready.indexOf(2)<ready.indexOf(1));
+ assert.ok(budgets.every(value=>value>=128&&value<=8192));
+ for(const numbers of checkpoints)assert.deepEqual(numbers,Array.from({length:numbers.length},(_,i)=>i+1));
+});
+
 test('document sections overlap, retain ordered checkpoints and complete full-document validation',async()=>{
     let active=0,peak=0;const checkpoints=[];
     const sections=Array.from({length:3},(_,index)=>({id:`section-${index}`,heading:`API topic ${index}`,objective:'Explain REST APIs',topics:[],targetWords:100}));

@@ -45,15 +45,16 @@ Defaults preserve the existing generation API. Configure these in the server/Ren
 | `PEXELS_API_KEY` | Optional stock provider key |
 | `PRESENTATION_ALLOW_IMAGE_GENERATION` | `false`; explicit `true` required |
 | `PRESENTATION_GENERATION_PROVIDER` | `gemini`; adapter also requires `GEMINI_API_KEY` and `PRESENTATION_IMAGE_MODEL` |
-| `PRESENTATION_MAX_GENERATED_IMAGES` | 3 generation attempts per deck, including retries; bounded 0–12 |
+| `PRESENTATION_MAX_GENERATED_IMAGES` | 24 generation attempts per deck, including retries; bounded 0–36 |
 | `PRESENTATION_IMAGE_ESTIMATED_UNIT_COST` | 0: generation cannot start until a positive server estimate is supplied |
 | `PRESENTATION_IMAGE_MAX_ESTIMATED_COST` | 0: generation cannot start until a positive deck ceiling is supplied |
 | `PRESENTATION_IMAGE_RESOLUTION` | `2K`; supported settings `1K`, `2K`, `4K`, subject to the configured model |
-| `PRESENTATION_MAX_IMAGES` | 8 image assets per deck, bounded 0–12 |
+| `PRESENTATION_MAX_IMAGES` | 12 image assets per deck, bounded 0–12 |
 | `PRESENTATION_IMAGE_CONCURRENCY` | 2, bounded 1–3 |
 | `PRESENTATION_IMAGE_RETRIES` | 1 retry, bounded 0–2 |
-| `PRESENTATION_IMAGE_TIMEOUT_MS` | 20,000 per request, bounded 1,000–60,000 |
-| `PRESENTATION_IMAGE_DEADLINE_MS` | 45,000 for image acquisition; queued requests stop when it expires; bounded 1,000–120,000 |
+| `PRESENTATION_IMAGE_TIMEOUT_MS` | 60,000 per provider attempt, bounded 1,000–60,000 |
+| `PRESENTATION_STOCK_SEARCH_TIMEOUT_MS` | 12,000 per stock attempt, bounded 1,000–30,000; at most three Commons query variants |
+| `PRESENTATION_IMAGE_DEADLINE_MS` | 180,000 for image acquisition; queued requests stop when it expires; bounded 1,000–300,000 |
 | `PRESENTATION_IMAGE_JPEG_QUALITY` | 88, bounded 70–95 |
 | `PRESENTATION_IMAGE_CACHE_DAYS` | 7, bounded 0–30 |
 
