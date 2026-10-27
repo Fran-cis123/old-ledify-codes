@@ -18,10 +18,8 @@ import { validateQuantitativeGrounding } from './ai/sourceGrounding.mjs';
 import { repairPresentationValidation } from './ai/presentationValidation.mjs';
 import {wantsTextOnly,planImageCoverage} from './visual/imageArtDirection.mjs';
 import {presentationLayoutService} from './presentationLayoutService.mjs';
-import {
-    GoogleGenAI,
-    Type
-} from "@google/genai";
+import {Type} from '../templates/shared/schemaTypes.mjs';
+import {getTextClient,textModel} from './ai/textProvider.mjs';
 
 import {
     presentationStrategies
@@ -41,12 +39,10 @@ import {
 
 
 // =========================================================
-// GEMINI CLIENT
+// LAZY STRUCTURED TEXT CLIENT
 // =========================================================
 
-const ai = new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY
-});
+const ai = {generateStructured:request=>getTextClient().generateStructured(request)};
 
 
 // =========================================================
@@ -1353,7 +1349,7 @@ let generatedContent = isPresentation && options.initialPresentation ? structure
         if (value.outputType !== outputType) throw new Error('AI returned incorrect outputType');
     },
     request: {
-        model: process.env.GEMINI_OUTLINE_MODEL || 'gemini-3.7-flash',
+        model: textModel('presentation-outline'),
         contents: isPresentation ? buildOutlinePrompt(inputType, input, context, countPolicy) : prompt,
         config: {
             responseMimeType: 'application/json', responseJsonSchema: isPresentation ? outlineProviderSchema(schema) : schema,
@@ -1408,7 +1404,7 @@ if (isPresentation) {
                 validateQuantitativeGrounding(completedSlide, input);
             },
             request: {
-                model: process.env.GEMINI_SLIDE_MODEL || 'gemini-3.5-flash',
+                model: textModel('slide-content-generation'),
                 contents: buildSlidePrompt(input, context, generatedContent, slide, previous,usesImage) + contentBudgetPrompt(slideSchema) + (repairInstruction ? `\nTargeted quality repair; preserve all correct content and the same canonical structure:\n${repairInstruction}` : ''),
                 config: { responseMimeType: 'application/json', responseJsonSchema: slideSchema,
                     maxOutputTokens: 4096,
@@ -1419,7 +1415,7 @@ if (isPresentation) {
         return content;
     };
     await generateInBatches(generatedContent.slides,
-        generationConcurrency(options.slideConcurrency??process.env.LEDIFY_SLIDE_CONCURRENCY),
+        generationConcurrency(options.slideConcurrency??process.env.LEDIFY_SLIDE_CONCURRENCY,6),
         slide=>options.initialPresentation&&slide.content?slide.content:generateSlide(slide),
         async (content,slide)=>{
             slide.content=content;
@@ -1432,7 +1428,7 @@ if (isPresentation) {
         if(/\b(?:title|subtitle|heading)\b/i.test(instructions.split('Resolve these exact validation failures')[0])){
             const metadataSchema={type:'object',properties:{title:{type:'string'},subtitle:{type:'string'}},required:['title','subtitle'],additionalProperties:false};
             const metadata=await run({stage:'slide-metadata-repair',slideNumber:slide.slideNumber,schema:metadataSchema,outputType:'presentation',
-                request:{model:process.env.GEMINI_SLIDE_MODEL || 'gemini-3.5-flash',contents:`Correct only this slide title/subtitle for factual accuracy and readability. Title under 80 characters, subtitle under 90; no generic filler or unsupported absolute claims. Preserve topic. Instructions: ${instructions}\nCurrent slide: ${JSON.stringify(slide)}\nSource/context: ${JSON.stringify({input,context})}`,config:{responseMimeType:'application/json',responseJsonSchema:metadataSchema,maxOutputTokens:1024}},
+                request:{model:textModel('slide-metadata-repair'),contents:`Correct only this slide title/subtitle for factual accuracy and readability. Title under 80 characters, subtitle under 90; no generic filler or unsupported absolute claims. Preserve topic. Instructions: ${instructions}\nCurrent slide: ${JSON.stringify(slide)}\nSource/context: ${JSON.stringify({input,context})}`,config:{responseMimeType:'application/json',responseJsonSchema:metadataSchema,maxOutputTokens:1024}},
                 validate:value=>{if(!value.title.trim()||value.title.length>80||value.subtitle.length>90)throw new Error('Slide metadata must fit concise readable fields');}});
             repaired={...slide,...metadata};
             if(slide.slideType==='title'){generatedContent.title=metadata.title;generatedContent.subtitle=metadata.subtitle;}
@@ -1451,7 +1447,7 @@ if (isPresentation) {
             items: { type: 'object', properties: { slideNumber: { type: 'integer' }, notes: { type: 'string' } }, required: ['slideNumber', 'notes'], additionalProperties: false } } }, required: ['slides'], additionalProperties: false };
         const notes = await run({ stage: 'speaker-notes-generation', schema: notesSchema, outputType: 'presentation', strict: true,
             validate: value => { if(value.slides.some((s,i)=>s.slideNumber!==i+1 || !s.notes.trim())) throw new Error('Notes must match every slide in order'); },
-            request: { model: process.env.GEMINI_SLIDE_MODEL || 'gemini-3.5-flash', contents: `Write optional speaker notes, one short paragraph per slide, from this approved deck and source. Preserve facts and uncertainty, add no invented claims or citations. Notes are not visible slide text. Source: ${JSON.stringify(input)}\nDeck: ${JSON.stringify(generatedContent)}`,config:{responseMimeType:'application/json',responseJsonSchema:notesSchema,maxOutputTokens:8192} } });
+            request: { model: textModel('slide-content-generation'), contents: `Write optional speaker notes, one short paragraph per slide, from this approved deck and source. Preserve facts and uncertainty, add no invented claims or citations. Notes are not visible slide text. Source: ${JSON.stringify(input)}\nDeck: ${JSON.stringify(generatedContent)}`,config:{responseMimeType:'application/json',responseJsonSchema:notesSchema,maxOutputTokens:8192} } });
         for(const note of notes.slides) generatedContent.slides[note.slideNumber-1].speakerNotes=note.notes;
     }
     await options.onCheckpoint?.(generatedContent);

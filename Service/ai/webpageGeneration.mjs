@@ -3,6 +3,7 @@ import {performanceRequestId} from '../performance.mjs';
 import {requestedLabels,validateRequestedLabels} from './requestedLabels.mjs';
 import { MAX_SOURCE_CHARACTERS } from '../input/sourceLimits.mjs';
 import { generateJsonWithRetry } from './generateJsonWithRetry.mjs';
+import {textModel} from './textProvider.mjs';
 import { webpagePlanSchema, webpageContentSchema,webpagePlanningProviderSchema } from '../../templates/webpage/webpageSchema.mjs';
 import { validateWebpagePlan, validateWebpageContent, webpageError } from '../webpageContentValidator.mjs';
 import {userWebsiteBrief} from '../webpage/websiteBrief.mjs';
@@ -29,7 +30,7 @@ export async function generateWebpageContent({ client, inputType, input, context
     const source = `${input}\n${JSON.stringify(context)}`;
     const originalPlan = options.initialPlan || await generateJsonWithRetry({ ...common, stage: 'webpage-planning', schema: webpagePlanSchema,
         validate: value => validateWebpagePlan(value, source),
-        request: { model: process.env.GEMINI_WEBPAGE_PLAN_MODEL || 'gemini-3.7-flash',
+        request: { model: textModel('webpage-planning'),
             contents: `${rules}\nPlan category, visual direction, ordered sections and navigation labels before drafting. brandName is the exact supplied short name without a tagline or SEO suffix; title may be a longer browser title. Use a concise descriptive topic label if no brand is supplied. Choose distinct directions: portfolio=editorial, startup/product=product, education=academy, restaurant/event=table, professional business/service=classic; adapt to explicit branding. Select coherent #RRGGBB colors or leave them empty for the selected design system. Navigation labels should be short and meaningful, or empty for sections that do not belong in navigation.\nInput type: ${inputType}\nContext: ${JSON.stringify(context)}\nSource: ${JSON.stringify(input)}`,
             config: { responseMimeType: 'application/json', responseJsonSchema: webpagePlanningProviderSchema(), maxOutputTokens: 6144, temperature: .3, thinkingConfig: { thinkingBudget: 1024 } } }
     });
@@ -43,7 +44,7 @@ export async function generateWebpageContent({ client, inputType, input, context
             for(const check of [()=>validateWebpageContent(value,{plan,schema,source,scope:specification.mode,identity:specification.identity}),()=>validateRequestedLabels(value,requiredLabels)])try{check();}catch(error){failures.push(error);}
             if(failures.length)throw Object.assign(failures[0],{validationErrors:failures.flatMap(error=>error.validationErrors||[{field:error.field,repairHint:error.repairHint||error.message,validationRule:error.validationRule}]).slice(0,16)});
         }catch(error){options.onInvalidContent?.({content:value,field:error.field,message:error.message});throw error;}},
-        request: { model: process.env.GEMINI_WEBPAGE_CONTENT_MODEL || 'gemini-3.5-flash',
+        request: { model: textModel('webpage-content'),
             contents: `${rules}\nWrite complete concise content for this exact ordered plan. Use plain source-supplied object names as product-card titles, keeping general design descriptors in descriptions. Do not invent specific model specifications or inventory. Preserve every explicitly requested brand or named subject in visible copy; group long lists across sections or descriptions rather than dropping entries. A collection introduction can qualify all its examples as illustrative without repeating that label on every card. Numeric-looking identifiers such as V12 or CO2 are names, not quantitative evidence; measured specifications still require supplied sources. Write an expressive, specific hero in about 5–9 words; avoid generic Welcome to headlines, SEO titles or dry category labels. Use a concise benefit or purpose supported by the source. Keep description under 200 characters; hero subheadline under 250; section introductions under 100 words; item descriptions under 45 words. Use exact section types and order. Use natural section headings; do not repeat the hero headline as a section heading. For a concept product clearly qualify the hero/introduction as proposed, without mechanically repeating Proposed in every heading. Item detail is for supplied prices/dates or meaningful word labels; otherwise empty. Never add ordinal digits such as 01, 02, Step 1 or invented project years to item fields: the renderer numbers ordered steps. Item url only for a supplied HTTPS destination. Contact fields are empty unless explicitly supplied. Keep calls to action truthful; use labels such as Explore the work, Browse the menu or Start learning when no contact destination exists.\nContent scope: ${JSON.stringify(specification)}\nPlan: ${JSON.stringify(plan)}\nContext: ${JSON.stringify(context)}\nSource: ${JSON.stringify(input)}`,
             config: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 8192,thinkingConfig:{thinkingBudget:1024} } }
     });

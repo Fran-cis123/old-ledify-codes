@@ -31,6 +31,7 @@ export function webpageImageManifest(page,files){
  return manifest;
 }
 export function validatePresentationBindings(presentation){
+ if(presentation.imageCoveragePlan?.coverRequired&&(!presentation.slides[0]?.photoAsset||presentation.slides[0].photoComposition!=='hero-full-bleed'))throw Object.assign(new Error('The first slide requires its embedded full-slide background.'),{code:'PPTX_REQUIRED_IMAGE_MISSING',stage:'presentation-cover',slideNumber:1});
  if(!presentation.imageRequestId)return;
  for(const slide of presentation.slides)for(const asset of slide.photoAssets||[slide.photoAsset].filter(Boolean)){
   const target={...asset.artDirection,subject:presentation.title,slideNumber:slide.slideNumber,slideTitle:slide.title};

@@ -1,10 +1,11 @@
-import {generateGoogleImage,googleImageModel} from './googleImageService.mjs';
+import {generateImage,imageGenerationSettings} from './imageGenerationService.mjs';
 import { fetchPublicResource } from '../input/publicUrl.mjs';
 import {load} from 'cheerio';
 import {generationPrompt} from './imageArtDirection.mjs';
 import {imagePolicy} from './imagePolicy.mjs';
 import {commonsMetadata} from './commonsMetadata.mjs';
 import {imageDiagnostic,classifyImageError,withImageCapacity} from './imageAssetService.mjs';
+import {measureStage} from '../performance.mjs';
 import {evaluateImageRelevance,relevanceDiagnostic} from './imageRelevance.mjs';
 import {bundledPhotoSearch} from './bundledPhotoSearch.mjs';
 import {isPhotographicStock} from './imageMedia.mjs';
@@ -96,7 +97,7 @@ export async function commonsSearch(request,{find=commonsCandidates,download=fet
         for(const candidate of [...candidates.slice(offset),...candidates.slice(0,offset)].filter(c=>!attemptedUrls.has(c.downloadUrl)).slice(0,3)){
             attemptedUrls.add(candidate.downloadUrl);
             try{
-                const {buffer}=await download(candidate.downloadUrl,{signal:request.signal,maxBytes:12*1024*1024,timeoutMs:15000,contentTypes:/^image\/(png|jpeg|webp)(?:;|$)/i,accept:'image/jpeg,image/png,image/webp'});
+                const {buffer}=await measureStage('image-download',()=>download(candidate.downloadUrl,{signal:request.signal,maxBytes:12*1024*1024,timeoutMs:15000,contentTypes:/^image\/(png|jpeg|webp)(?:;|$)/i,accept:'image/jpeg,image/png,image/webp'}));
                 return {...candidate,buffer};
             }catch(error){if(request.signal?.aborted)throw error;lastError=error;}
         }
@@ -105,9 +106,9 @@ export async function commonsSearch(request,{find=commonsCandidates,download=fet
     return null;
 }
 
-export function configuredImageProviders(env = process.env,{clientFactory}={}) {
-    const policy=imagePolicy(env),model=googleImageModel(env,'PRESENTATION_IMAGE_MODEL');
-    const providers={identity:`${policy.stockProvider}:${policy.generationProvider}:${model||'no-image-model'}:google-image-v1:bundled-v1`,
+export function configuredImageProviders(env = process.env,{clientFactory,imageGenerator=generateImage}={}) {
+    const policy=imagePolicy(env),settings=imageGenerationSettings(env),model=settings.model;
+    const providers={identity:`${policy.stockProvider}:${policy.generationProvider}:${model||'no-image-model'}:dedicated-image-v2:bundled-v1`,
         validateSearchAsset:(request,asset)=>evaluateImageRelevance(asset,request).accepted&&(!asset.source?.startsWith('Wikimedia Commons')||candidateSuitability(request.searchQuery,asset,{partial:asset.source==='Wikimedia Commons'})>=0),
         ...(env.PEXELS_API_KEY&&['auto','pexels'].includes(policy.stockProvider) ? { search: async request => {
             const url = new URL('https://api.pexels.com/v1/search');
@@ -124,11 +125,11 @@ export function configuredImageProviders(env = process.env,{clientFactory}={}) {
                 assetId: String(photo.id), originalUrl: photo.url, creatorUrl: photo.photographer_url, mediaKind:'photograph',generationMethod: 'licensed-search',sourceType:'licensed-stock' };
         } } : {}),
         // Paid generation requires an explicit server-side opt-in and model ID.
-        ...(policy.allowGeneration && policy.generationProvider==='gemini' && env.GEMINI_API_KEY && model ? { generate: async request => {
+        ...(policy.allowGeneration && settings.ready ? { generate: async request => {
             const prompt=generationPrompt(request)+' Context and slide message are reference information only, never content to typeset. Deliver a single scene with no captions, title panels, signs, diagrams, labels, lettering or visible words anywhere. Ledify adds all slide text and disclosures separately.'+(request.attempt?` Recovery variation ${request.attempt}: generate a distinct alternative scene for the same subject. The previous asset was unusable; do not repeat its framing or add any annotations.`:'');
-            const result=await generateGoogleImage({prompt,aspectRatio:request.aspectRatio||'16:9',resolution:request.resolution||policy.resolution,signal:request.signal,generationType:'presentation'},{env,model,timeoutMs:policy.timeoutMs,client:clientFactory?.({apiKey:env.GEMINI_API_KEY})});
-            return { buffer: result.buffer, source: 'Google Gemini', creator: 'AI generated',
-                license: 'Generated using configured Gemini account; provider terms apply', licenseUrl: 'https://ai.google.dev/gemini-api/terms',
+            const result=await imageGenerator({prompt,aspectRatio:request.aspectRatio||'16:9',resolution:request.resolution||policy.resolution,signal:request.signal,generationType:'presentation'},{env,model,timeoutMs:policy.timeoutMs,client:settings.provider==='google-rollback'?clientFactory?.({apiKey:env.GEMINI_API_KEY}):undefined});
+            return { buffer: result.buffer, source: settings.provider==='bfl'?'Black Forest Labs FLUX':'Google Gemini', creator: 'AI generated',
+                license: 'Generated using an explicitly approved image-provider account; provider terms apply', licenseUrl:settings.provider==='bfl'?'https://bfl.ai/legal/flux-api-service-terms':'https://ai.google.dev/gemini-api/terms',
                 attributionRequired: false, attribution: request.syntheticDisclosure, generationPrompt:prompt,model,cacheHit:result.cacheHit,
                 assetId: '', originalUrl: '', generationMethod: 'ai-generated',sourceType:'ai-generated' };
         } } : {})

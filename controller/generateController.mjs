@@ -69,10 +69,12 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
             }
             let result = await withGenerationCapacity(()=>generator(kind, input, outputType, context,visualInput?.assets.length?{visuals:{userAssets:visualInput.assets}}:{}));
             if(sources)result={...result,sources};
-            result = publicGenerationResult(result);
-            result = addPresentationPublicUrls(result,req);
-            for(const key of ['context','resolvedContext']) result[key]=compactOptionalContext(result[key]);
-            if(result.generatedContent?.inferredContext) result.generatedContent.inferredContext=compactOptionalContext(result.generatedContent.inferredContext);
+            result=await measureStage('response-preparation',()=>{
+                const projected=addPresentationPublicUrls(publicGenerationResult(result),req);
+                for(const key of ['context','resolvedContext']) projected[key]=compactOptionalContext(projected[key]);
+                if(projected.generatedContent?.inferredContext)projected.generatedContent.inferredContext=compactOptionalContext(projected.generatedContent.inferredContext);
+                return projected;
+            });
             record.status = result.status==='incomplete'?'failed':'completed'; record.generatedContent = result.generatedContent;
             if (result.artifacts || result.preview) record.artifacts = result.artifacts || result.preview;
             await databaseOperation('database-save',()=>record.save());
@@ -95,6 +97,7 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
         } catch (error) {
             if (record && error.code!=='DATABASE_UNAVAILABLE') { record.status = 'failed'; try { await record.save(); } catch {} }
             const code = error.code || 'GENERATION_FAILED';
+            if(/^(?:ANTHROPIC_|CLAUDE_|AI_TEXT_)/.test(code))return res.status(503).json({message:'The configured text provider is not ready.',errorCode:code,stage:'text-provider',error:'Verify the configured Anthropic API key and exact Claude model. No alternative provider was selected.'});
             if(code==='DATABASE_UNAVAILABLE'){
                 res.set?.('Retry-After','15');
                 console.error('[DATABASE]',JSON.stringify({errorCode:code,stage:error.stage,errorType:error.databaseErrorType}));
@@ -107,15 +110,15 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
                 imageFailures:error.imageDiagnostics?.filter(d=>d.status!=='resolved').map(({slideNumber,method,status,attempt,reasonCode})=>({slideNumber,method,status,attempt,reasonCode}))});
             if(code==='AI_PROVIDER_ERROR'||code==='AI_PROVIDER_TRANSIENT'||code==='AI_RETRY_EXHAUSTED'&&error.lastErrorCode==='AI_PROVIDER_TRANSIENT'){
                 const reasons={
-                    INVALID_API_KEY:'Gemini rejected the server API key. Verify GEMINI_API_KEY in the deployed service environment.',
-                    API_KEY_RESTRICTED:'The server Gemini API key restrictions block this service. Verify the key restrictions in Google AI Studio or Google Cloud.',
-                    PERMISSION_DENIED:'Gemini denied this service access. Verify the deployed API key permissions and project configuration.',
-                    MODEL_NOT_FOUND:'The configured Gemini model is unavailable. Verify the deployed GEMINI model settings against the models available to the server API key.',
-                    REGION_UNSUPPORTED:'Gemini is unavailable from this service region. Use a supported deployment region.',
-                    QUOTA_OR_BILLING:'Gemini quota or billing currently prevents generation. Check the server project quota and billing.',
-                    REQUEST_REJECTED:'Gemini rejected the generation request. Check the server model configuration and request schema.',
-                    PROVIDER_UNAVAILABLE:'Gemini is temporarily unavailable. Please retry shortly.',
-                    PROVIDER_CONNECTION_FAILED:'The server could not connect to Gemini. Check service network connectivity and retry.'
+                    INVALID_API_KEY:'The configured text provider rejected the API key. Verify the server credentials.',
+                    API_KEY_RESTRICTED:'The configured text provider key restrictions block this service. Verify the account permissions.',
+                    PERMISSION_DENIED:'The configured text provider denied access. Verify the deployed account permissions.',
+                    MODEL_NOT_FOUND:'The configured text model is unavailable. Verify the exact identifier and account access.',
+                    REGION_UNSUPPORTED:'The configured text provider is unavailable from this service region. Use a supported deployment region.',
+                    QUOTA_OR_BILLING:'Text-provider quota or billing currently prevents generation. Check the server project quota and billing.',
+                    REQUEST_REJECTED:'The text provider rejected the generation request. Check the server model configuration and request schema.',
+                    PROVIDER_UNAVAILABLE:'The text provider is temporarily unavailable. Please retry shortly.',
+                    PROVIDER_CONNECTION_FAILED:'The server could not connect to its text provider. Check service network connectivity and retry.'
                 };
                 const providerMessage=reasons[error.providerReason]||'The AI provider could not complete generation. Check the server provider configuration.';
                 const unavailable=code!=='AI_PROVIDER_ERROR'||error.providerReason==='QUOTA_OR_BILLING';

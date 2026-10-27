@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes,randomUUID,createHash,timingSafeEqual} from 'node:crypto';
-import {profileGeneration} from './performance.mjs';
+import {profileGeneration,measureStage} from './performance.mjs';
 import {publicGenerationResult} from './publicGenerationResult.mjs';
 import {storageRoot} from './storageRoot.mjs';
 import {withGenerationCapacity,generationConcurrencySettings} from './generationCapacity.mjs';
@@ -16,7 +16,7 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
     const filename=(id,name)=>path.join(root,id,name);
     const validId=id=>/^[a-f0-9-]{36}$/.test(id);
     const log=entry=>{try{logger(entry);}catch{}};
-    async function atomic(file,value){
+    async function writeAtomic(file,value){
         const temp=file+'.'+randomUUID()+'.tmp';await fs.writeFile(temp,JSON.stringify(value));
         try{for(let attempt=0;;attempt++){
             try{await fs.rename(temp,file);return;}
@@ -26,6 +26,7 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
             catch(error){if(attempt>=10||!['EPERM','EACCES','EBUSY'].includes(error.code))throw error;await new Promise(resolve=>setTimeout(resolve,Math.min(250,10*2**attempt)));}
         }}finally{await fs.unlink(temp).catch(()=>{});}
     }
+    const atomic=(file,value)=>measureStage('job-storage',()=>writeAtomic(file,value));
     async function load(id){if(!validId(id))throw Object.assign(new Error('Job not found'),{status:404});return JSON.parse(await fs.readFile(filename(id,'status.json'),'utf8'));}
     async function init(){
         if(!ready)ready=(async()=>{
@@ -69,7 +70,8 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
                 let plan,partial;try{plan=JSON.parse(await fs.readFile(filename(id,'plan.json'),'utf8'));}catch{}
                 try{partial=JSON.parse(await fs.readFile(filename(id,'partial.json'),'utf8'));}catch{}
                 const update=change=>{Object.assign(job,change,{updatedAt:new Date().toISOString()});writes=writes.then(()=>atomic(filename(id,'status.json'),job));return writes;};
-                const result=await profileGeneration(()=>withGenerationCapacity(()=>generator(payload.kind,payload.input,payload.outputType,payload.context,{
+                let finalPerformance;
+                const result=await profileGeneration(async()=>{const generated=await withGenerationCapacity(()=>generator(payload.kind,payload.input,payload.outputType,payload.context,{
                     ...payload.options,completedContent,
                     ai:{...payload.options?.ai,
                         ...(payload.outputType==='presentation'?{initialPresentation:partial}:{initialPlan:plan,...(payload.outputType==='document'?{initialSections:partial?.sections}:{})}),
@@ -78,7 +80,7 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
                         onCheckpoint:partial=>atomic(filename(id,'partial.json'),partial)},
                     onContentReady:content=>atomic(filename(id,'content.json'),content),
                     preview:{onArtifact:artifact=>update({artifacts:{...job.artifacts,[artifact.stage]:artifact}})}
-                })),{forceNew:true,requestId:id,onReport:onPerformanceReport,onProgress:event=>{
+                }));return measureStage('response-preparation',()=>publicGenerationResult(generated));},{forceNew:true,requestId:id,onReport:async report=>{finalPerformance=report;await onPerformanceReport?.(report);},onProgress:event=>{
                     const key=[event.stage,event.slideNumber||event.sectionId||''].join(':');
                     job.progress[key]={...event,updatedAt:new Date().toISOString()};
                     if(!progressPending){progressPending=true;update({progress:job.progress}).finally(()=>{progressPending=false;}).catch(()=>{});}
@@ -87,7 +89,7 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
                 job.completedAt=new Date().toISOString();
                 job.timings.executionMs=Math.round(performance.now()-executionStarted);
                 job.timings.totalMs=job.timings.queueWaitMs+job.timings.executionMs;
-                const safe=publicGenerationResult(result);
+                const safe=result;safe.performance=finalPerformance;
                 const incomplete=safe.status==='incomplete';
                 const pdfFailed=safe.exportValidation?.status==='incomplete';
                 await update({status:incomplete?'failed':'completed',result:safe,...(incomplete?{error:pdfFailed?{errorCode:'DOCUMENT_PDF_UNAVAILABLE',stage:'document-export',message:'PDF export is unavailable; Word and preview remain available.'}:{errorCode:'IMAGE_REQUIREMENTS_UNMET',stage:'image-validation',message:'Required images are missing. Available artifacts are incomplete; retry or provide authorized assets.'}}:{})});

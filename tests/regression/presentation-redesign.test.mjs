@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {coverAsset} from '../fixtures/coverAsset.mjs';
 import assert from 'node:assert/strict';
 import {checkGeometry,geometryRecorder} from '../../renderer/presentation/geometry.mjs';
 import {numberedSlideRequirements,validateNumberedRequirements,visualIntent} from '../../Service/ai/presentationIntent.mjs';
@@ -80,7 +81,7 @@ test('authorized photos are embedded once, preserve aspect ratio and retain attr
     const presentation=structuredClone(healthcare.presentation);presentation.slides=presentation.slides.slice(0,1);
     for(let i=2;i<=3;i++)presentation.slides.push({slideNumber:i,slideType:'text-visual',title:'Laboratory context '+i,layoutId:'text-visual-split',content:{visualContent:{text:'Illustrative laboratory photograph, rather than evidence about a particular facility.',visual:{type:'photo',description:'A laboratory photograph',searchQuery:'laboratory'}}},visualRequirement:{role:'foreground',kind:'photo',required:true,description:'Laboratory',altText:'Illustrative laboratory photograph',searchQuery:'laboratory'}});
     const ready=presentationRendererService(presentationThemeService(presentationLayoutService(presentation),healthcare.context));
-    const resolved=await resolvePresentationVisuals(ready,{designPreferences:{noImageSlideNumbers:[1,3]}}, {cacheRoot:root,providers:{search:async()=>photo}});
+    const resolved=await resolvePresentationVisuals(ready,{designPreferences:{noImageSlideNumbers:[1,3]}}, {cacheRoot:root,userAssets:[await coverAsset()],providers:{search:async()=>photo}});
     assert.ok(resolved.slides[1].photoAsset);assert.equal(resolved.slides[2].photoAsset,undefined);
     assert.ok(Math.abs(resolved.slides[1].photoAsset.width/resolved.slides[1].photoAsset.height-resolved.slides[1].photoAsset.crop.targetAspectRatio)<.01);
     const {buffer:pptx}=await generatePresentationBuffer(resolved),zip=await JSZip.loadAsync(pptx);

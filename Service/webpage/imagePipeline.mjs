@@ -17,8 +17,11 @@ import {generationConcurrency,generateIndependent} from '../ai/concurrency.mjs';
 import {classifyImageError,imageBackoff,imageDiagnostic} from '../visual/imageAssetService.mjs';
 import {requiresConceptImage} from './imageIntent.mjs';
 import {wantsTextOnly} from '../visual/imageArtDirection.mjs';
+import {generationBudget} from '../visual/imagePolicy.mjs';
 
 const bundledCatalog=fileURLToPath(new URL('../../assets/webpage/curated/catalog.json',import.meta.url));
+const generated=record=>record?.sourceType==='ai-generated'||record?.generationMethod==='ai-generated'||record?.source==='Google Gemini';
+const generationProvider=provider=>provider.kind==='generation'||provider.id==='gemini-image';
 const safeCreditUrl=value=>{try{const url=new URL(value);url.search='';url.hash='';return url.protocol==='https:'&&!url.username&&!url.password?url.href:'';}catch{return '';}};
 
 export async function acquireWebsiteImages(page,context={},options={}){
@@ -27,6 +30,7 @@ export async function acquireWebsiteImages(page,context={},options={}){
     if(wantsTextOnly(context))return {page:{...page,sections:page.sections.map(section=>({...section,image:undefined,items:section.items.map(item=>({...item,image:undefined}))})),visualAssets:{credits:[]},imageValidation:{status:'passed',requiredMissing:[]},imageStrategy:{plan:[],planned:0,resolved:0,unmet:0,generatedCalls:0,diagnostics:[]}},assets,warnings};
     const logImage=entry=>{diagnostics.push(entry);imageDiagnostic({generationType:'webpage',...entry},options.logger);};
     const policy={...imagePolicy(),...options.policy},started=Date.now();let generatedCalls=0;
+    const paidBudget=generationBudget({...policy,allowGeneration:true});
     const user=userWebsiteBrief('',context);
     const optimize=async (record,buffer,target=requests.find(target=>target.role===record.role&&(!record.sectionId||target.sectionId===record.sectionId))||record)=>{
         if(selected.length>=policy.maxAssets||selected.some(asset=>asset.role==='hero'&&record.role==='hero'))return false;
@@ -34,7 +38,7 @@ export async function acquireWebsiteImages(page,context={},options={}){
         // Reject unsuitable metadata before spawning an image worker. The final
         // review below still checks actual decoded dimensions and placement.
         if(record.role!=='logo'){
-            const candidate=record.source==='Google Gemini'?{...record,subject:target.query}:record;
+            const candidate=generated(record)?{...record,subject:target.query}:record;
             const preflight=reviewImageCandidate(candidate,target);
             if(!preflight.accepted){relevanceDiagnostic(record,target,preflight,options.relevanceLogger);warnings.push({code:'WEBPAGE_IMAGE_RELEVANCE_REJECTED',message:'An image failed semantic relevance or provenance checks.'});return false;}
         }
@@ -44,8 +48,8 @@ export async function acquireWebsiteImages(page,context={},options={}){
         if(selected.length>=policy.maxAssets||selected.some(asset=>asset.role==='hero'&&record.role==='hero'))return false;
         if(selected.some(asset=>asset.assetId===optimized.id)&&record.allowRepeat!==true){warnings.push({code:'WEBPAGE_DUPLICATE_IMAGE_REJECTED',message:'A repeated image was excluded from another placement.'});return false;}
         const dimensions=optimized.variants.at(-1);
-        const review=record.role==='logo'?{accepted:true,method:'caller-authorized-logo',limits:'Caller ownership/representation assertions require review.'}:reviewImageCandidate(record.source==='Google Gemini'?{...record,subject:target.query}:record,target,dimensions);
-        if(record.source==='Google Gemini')review.method='generation-intent-and-dimensions';
+        const review=record.role==='logo'?{accepted:true,method:'caller-authorized-logo',limits:'Caller ownership/representation assertions require review.'}:reviewImageCandidate(generated(record)?{...record,subject:target.query}:record,target,dimensions);
+        if(generated(record))review.method='generation-intent-and-dimensions';
         relevanceDiagnostic(record,target,review,options.relevanceLogger);
         if(!review.accepted){warnings.push({code:'WEBPAGE_IMAGE_RELEVANCE_REJECTED',message:'An image failed semantic relevance, provenance, resolution or placement checks.'});return false;}
         const variants=optimized.variants.map(variant=>{
@@ -76,26 +80,26 @@ export async function acquireWebsiteImages(page,context={},options={}){
     const providers=options.providers||websiteImageProviders();
     const matches=(asset,target)=>asset.role===target.role&&(target.role==='hero'||(asset.sectionId?asset.sectionId===target.sectionId:asset.sectionType===target.sectionType))&&(target.role!=='item'||asset.itemTitle===target.itemTitle);
     if(options.external!==false){
-        if(!providers.some(provider=>provider.id==='gemini-image'))warnings.push({code:'WEBPAGE_IMAGE_GENERATION_NOT_CONFIGURED',message:'AI imagery is unavailable: configure WEBPAGE_ALLOW_IMAGE_GENERATION=true, WEBPAGE_IMAGE_MODEL and GEMINI_API_KEY. Authorized stock/local assets may still be used.'});
+        if(!providers.some(provider=>generationProvider(provider)))warnings.push({code:'WEBPAGE_IMAGE_GENERATION_NOT_CONFIGURED',message:'AI imagery is unavailable: configure an approved AI_IMAGE_PROVIDER, AI_IMAGE_MODEL, AI_IMAGE_API_KEY and WEBPAGE_ALLOW_IMAGE_GENERATION=true. Authorized stock/local assets may still be used.'});
         const targets=[...requests].sort((a,b)=>Number(b.required)-Number(a.required)||Number(b.role==='hero')-Number(a.role==='hero')).slice(0,Math.max(0,policy.maxAssets-selected.length));
         await generateIndependent(targets,generationConcurrency(options.concurrency??policy.concurrency,2),async target=>{
             if(selected.some(asset=>matches(asset,target)))return;
             if(selected.length>=policy.maxAssets||Date.now()-started>=policy.totalMs)return;
             for(const provider of providers){
-                if((target.identityLabel||target.visualIntent==='photograph')&&provider.id==='gemini-image')continue;
+                if((target.identityLabel||target.visualIntent==='photograph')&&generationProvider(provider))continue;
                 if(requiresConceptImage(target)&&['commons','pexels'].includes(provider.id))continue;
                 if(disabled.has(provider.id))continue;
                 let resolved=false;
                 for(let attempt=0;attempt<=policy.retries;attempt++){
                     const remaining=policy.totalMs-(Date.now()-started);if(remaining<=0)break;
-                    if(provider.id==='gemini-image'&&generatedCalls>=policy.maxGenerated){logImage({provider:provider.id,model:provider.model,target:target.role,status:'skipped',reasonCode:'GENERATION_BUDGET_UNAVAILABLE'});break;}
+                    if(generationProvider(provider)&&!paidBudget.reserve()){logImage({provider:provider.id,model:provider.model,target:target.role,status:'skipped',reasonCode:'GENERATION_BUDGET_UNAVAILABLE'});break;}
                     const controller=new AbortController();let timer;
                     const attemptStarted=performance.now();
                     try{
-                        if(provider.id==='gemini-image')generatedCalls++;
+                        if(generationProvider(provider))generatedCalls++;
                         const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('Image acquisition timed out'));},Math.min(policy.timeoutMs,remaining));});
                         const record=await Promise.race([acquireProviderImage(provider,{...target,signal:controller.signal},{cacheRoot:options.optimization?.cacheRoot}),timeout]);
-                        if(record){resolved=await optimize({...record,...target,alt:record.source==='Google Gemini'?target.alt:record.alt||'',buffer:undefined},record.buffer,target);}
+                        if(record){resolved=await optimize({...record,...target,alt:generated(record)?target.alt:record.alt||'',buffer:undefined},record.buffer,target);}
                         diagnostics.push(imageDiagnostic({generationType:'webpage',provider:provider.id,model:provider.model,target:target.role,status:resolved?'resolved':'empty',reasonCode:resolved?undefined:'NO_ELIGIBLE_IMAGE',attempt:attempt+1,elapsedMs:performance.now()-attemptStarted,storage:resolved?'optimized':'skipped',validation:resolved?'passed':'rejected',cacheHit:record?.providerCacheHit},options.logger));
                         break;
                     }catch(error){const info=classifyImageError(error);clearTimeout(timer);logImage({provider:provider.id,model:provider.model,target:target.role,status:'failed',attempt:attempt+1,...info,elapsedMs:performance.now()-attemptStarted});warnings.push({code:'WEBPAGE_IMAGE_PROVIDER_UNAVAILABLE',provider:provider.id,target:target.role,reasonCode:info.reasonCode,message:'An image provider failed or exceeded its budget; the next authorized source is used.'});if(['IMAGE_INVALID_CREDENTIALS','IMAGE_ACCESS_DENIED','IMAGE_MODEL_UNAVAILABLE','IMAGE_REQUEST_REJECTED','IMAGE_BILLING_UNAVAILABLE'].includes(info.reasonCode))disabled.add(provider.id);if(!info.retryable||attempt>=policy.retries||!await imageBackoff(error,attempt,{remainingMs:policy.totalMs-(Date.now()-started),sleep:options.sleep}))break;}

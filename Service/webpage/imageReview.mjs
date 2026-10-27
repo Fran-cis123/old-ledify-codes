@@ -37,7 +37,7 @@ export function centralImageSubject(page){
 export function reviewImageCandidate(record,target,{width,height}={}){
     // Generation uses the full requested scene/purpose as intent evidence;
     // it is not independent visual verification of the returned pixels.
-    if(record.source==='Google Gemini')record={...record,subject:[target.query,target.subjectContext||target.topic].filter(Boolean).join('. ')};
+    if(record.sourceType==='ai-generated'||record.generationMethod==='ai-generated'||record.source==='Google Gemini')record={...record,subject:[target.query,target.subjectContext||target.topic].filter(Boolean).join('. ')};
     if(requiresConceptImage(target))target={...target,topic:target.query,centralConcepts:undefined};
     const provenance=Boolean(record.creator?.trim()&&record.license?.trim());
     const stock=/Wikimedia|Pexels|curated catalog/i.test(record.source||'')||record.sourceType==='licensed-stock';

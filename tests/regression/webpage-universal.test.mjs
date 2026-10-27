@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {approvedImageEnv} from '../fixtures/coverAsset.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -65,10 +66,9 @@ test('gallery plans acquire actual relevant local photographs for distinct items
 
 test('generated image adapter sends art direction and aspect ratio to the configured model without claiming authentic photos',async()=>{
     const buffer=await fs.readFile('assets/webpage/curated/food.jpg');let request;
-    const client={models:{generateContent:async value=>{request=value;return {candidates:[{content:{parts:[{inlineData:{mimeType:'image/jpeg',data:buffer.toString('base64')}}]}}]};}}};
-    const providers=websiteImageProviders({WEBPAGE_ALLOW_IMAGE_GENERATION:'true',WEBPAGE_IMAGE_MODEL:'configured-image-model',GEMINI_API_KEY:'test-only'}, {client});
+    const providers=websiteImageProviders({...approvedImageEnv,WEBPAGE_ALLOW_IMAGE_GENERATION:'true'}, {imageGenerator:async value=>{request=value;return {buffer};}});
     const asset=await providers[0].acquire({query:'conceptual garden food still life',style:'warm soft light',alt:'Concept food still life',role:'item',aspectRatio:'1:1'});
-    assert.equal(request.model,'configured-image-model');assert.equal(request.config.imageConfig.aspectRatio,'1:1');assert.match(request.contents,/warm soft light/);assert.match(request.contents,/No text, logos/);assert.equal(asset.illustrative,true);assert.match(asset.caption,/AI-generated conceptual/);assert.deepEqual(asset.buffer,buffer);
+    assert.equal(request.aspectRatio,'1:1');assert.match(request.prompt,/warm soft light/);assert.match(request.prompt,/No text, logos/);assert.equal(asset.illustrative,true);assert.match(asset.caption,/AI-generated conceptual/);assert.deepEqual(asset.buffer,buffer);
 });
 
 test('provider retries, timeout and asset budgets are bounded; missing generation configuration is explicit',async t=>{

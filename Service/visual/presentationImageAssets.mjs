@@ -7,10 +7,10 @@ import {imageBrief} from './imageArtDirection.mjs';
 import {PHOTO_FRAMES} from '../../renderer/presentation/photoCompositions.mjs';
 import {imageSpecificationSchema} from '../../templates/presentation/visualSchemas.mjs';
 import {validateSchema} from '../ai/responseValidation.mjs';
-import {storeImageAsset,atomicImageJson,classifyImageError,imageBackoff,imageDiagnostic} from './imageAssetService.mjs';
+import {storeImageAsset,atomicImageJson,classifyImageError,imageBackoff,imageDiagnostic,validateImageBytes} from './imageAssetService.mjs';
 import {evaluateImageRelevance,relevanceDiagnostic} from './imageRelevance.mjs';
 import {bindImageAsset} from './assetBinding.mjs';
-import {performanceRequestId} from '../performance.mjs';
+import {performanceRequestId,measureStage} from '../performance.mjs';
 
 export async function normalizePhoto(asset,brief,root,policy){
     if(!asset?.source||!asset.creator||!asset.license||(asset.attributionRequired&&!asset.attribution))throw new Error('Incomplete image usage rights or provenance');
@@ -73,7 +73,7 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                     if(Date.now()-meta.cachedAt<policy.cacheDays*86400000){
                         const filePath=path.join(root,meta.id+'.jpeg'),buffer=await fs.readFile(filePath);
                         if(createHash('sha256').update(buffer).digest('hex')!==meta.id)throw new Error('Cache checksum failed');
-                        await sharp(buffer,{limitInputPixels:32000000}).stats();
+                        await validateImageBytes(buffer);
                         if(!usedSources.has(meta.sourceChecksum)&&!used.has(meta.id)){used.add(meta.id);usedSources.add(meta.sourceChecksum);record({slideNumber:slide.slideNumber,method,status:'resolved',cacheHit:true,model:meta.model});return bindImageAsset({...meta,filePath,data:'image/jpeg;base64,'+buffer.toString('base64'),cacheHit:true},brief,requestId);}
                     }
                 }catch{}
@@ -107,7 +107,7 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                             const sourceKey=Buffer.isBuffer(candidate.buffer)?createHash('sha256').update(candidate.buffer).digest('hex'):'';
                             if(usedSources.has(sourceKey))throw new Error('Duplicate image in presentation');
                             usedSources.add(sourceKey);reservation=sourceKey;
-                            const asset=bindImageAsset(await normalizePhoto(candidate,brief,root,policy),brief,requestId);
+                            const asset=bindImageAsset(await measureStage('presentation-image-processing',()=>normalizePhoto(candidate,brief,root,policy)),brief,requestId);
                             if(used.has(asset.id))throw new Error('Duplicate image in presentation');
                             used.add(asset.id);usedSources.add(asset.sourceChecksum);
                             if(method!=='user'){const {data,filePath,binding,...meta}=asset;try{await atomicImageJson(cachePath,{...meta,cacheKey,cachedAt:Date.now()});}catch{record({slideNumber:slide.slideNumber,method,status:'cache-unavailable',reasonCode:'IMAGE_CACHE_STORAGE_FAILED'});}}

@@ -10,7 +10,7 @@ export function createAiCapacity({limit=6,maxWaiting=32,waitMs=90000,now=Date.no
   await new Promise((resolve,reject)=>{const entry={resolve,timer:setTimeout(()=>{const index=waiting.indexOf(entry);if(index>=0)waiting.splice(index,1);reject(busy());},waitMs)};waiting.push(entry);});
  }
  return {stats:()=>({active,queued:waiting.length,limit}),defer(error,scope=''){
-  const status=Number(error.status||error.statusCode||error.providerStatus);if(![429,503].includes(status))return;
+  const status=Number(error.status||error.statusCode||error.providerStatus);if(![429,503,529].includes(status))return;
   const headers=error.headers||error.response?.headers,value=headers?.get?.('retry-after')??headers?.['retry-after'];
   const retryInfo=(error.details||error.error?.details||[]).find?.(detail=>typeof detail.retryDelay==='string')?.retryDelay;
   const hint=value==null?(retryInfo&&/^\d+(?:\.\d+)?s$/.test(retryInfo)?parseFloat(retryInfo)*1000:1000):/^\d+(?:\.\d+)?$/.test(String(value))?Number(value)*1000:Date.parse(value)-now();

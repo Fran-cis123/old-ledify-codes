@@ -9,9 +9,9 @@ import {storageRoot} from '../storageRoot.mjs';
 // Disk-backed, short-lived provider results avoid repeating stock searches and
 // paid generation for an identical subject. No keys are part of the cache data.
 export async function acquireProviderImage(provider,request,options={}){
-    if(!['pexels','gemini-image','commons'].includes(provider.id))return provider.acquire(request);
+    if(!['pexels','generated-image','gemini-image','commons'].includes(provider.id))return provider.acquire(request);
     const root=path.resolve(options.cacheRoot||process.env.LEDIFY_WEBPAGE_ASSET_CACHE||storageRoot('webpage-image-cache'),'providers');
-    const id=createHash('sha256').update(JSON.stringify({version:9,provider:provider.id,scope:provider.cacheScope||'',identityLabel:request.identityLabel,topic:request.topic,subjectContext:request.subjectContext,primaryTopic:request.primaryTopic,role:request.role,sectionType:request.sectionType,visualIntent:request.visualIntent,sectionTopic:request.sectionTopic,exclusions:request.exclusions,query:request.query,style:request.style,purpose:request.purpose,lighting:request.lighting,palette:request.palette,temperature:request.temperature,focalPoint:request.focalPoint,aspectRatio:request.aspectRatio||'16:9',model:provider.model||process.env.WEBPAGE_IMAGE_MODEL||process.env.GOOGLE_IMAGE_MODEL||''})).digest('hex');
+    const id=createHash('sha256').update(JSON.stringify({version:10,provider:provider.id,scope:provider.cacheScope||'',identityLabel:request.identityLabel,topic:request.topic,subjectContext:request.subjectContext,primaryTopic:request.primaryTopic,role:request.role,sectionType:request.sectionType,visualIntent:request.visualIntent,sectionTopic:request.sectionTopic,exclusions:request.exclusions,query:request.query,style:request.style,purpose:request.purpose,lighting:request.lighting,palette:request.palette,temperature:request.temperature,focalPoint:request.focalPoint,aspectRatio:request.aspectRatio||'16:9',model:provider.model||process.env.AI_IMAGE_MODEL||''})).digest('hex');
     const metadataPath=path.join(root,id+'.json'),imagePath=path.join(root,id+'.bin');
     try{
         const stat=await fs.stat(metadataPath);if(stat.size>16384||Date.now()-stat.mtimeMs>30*60*1000)throw new Error('Expired provider cache');
@@ -23,7 +23,7 @@ export async function acquireProviderImage(provider,request,options={}){
     }catch{}
     const key=root+':'+id;
     return shareImageWork('website:'+key,async sharedSignal=>{
-        const image=await withImageCapacity(provider.id==='gemini-image'?'website-gemini-image':'licensed-stock',()=>provider.acquire({...request,signal:sharedSignal}),{concurrency:provider.id==='gemini-image'?1:imagePolicy().concurrency,signal:sharedSignal});
+        const image=await withImageCapacity((provider.kind==='generation'||provider.id==='gemini-image')?'website-generated-image':'licensed-stock',()=>provider.acquire({...request,signal:sharedSignal}),{concurrency:(provider.kind==='generation'||provider.id==='gemini-image')?1:imagePolicy().concurrency,signal:sharedSignal});
         if(image?.buffer && Buffer.isBuffer(image.buffer) && image.buffer.length<=12*1024*1024){
             const {buffer,binding,...metadata}=image;
             await validateImageBytes(buffer);

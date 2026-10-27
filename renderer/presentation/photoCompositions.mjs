@@ -12,12 +12,12 @@ export const PHOTO_FRAMES={
     'photo-comparison':{x:7.7,y:2.4,w:4.91,h:4.5},
     'photo-technical':{x:9.4,y:2.4,w:3.21,h:4.0}
 };
-export const PHOTO_VISIBLE_FRAMES={'hero-full-bleed':{x:5.75,y:0,w:7.583333,h:7.5}};
+export const PHOTO_VISIBLE_FRAMES={'hero-full-bleed':{x:0,y:0,w:13.333333,h:3.3}};
 export function renderPhotoComposition({slide,d,c,t,ink,muted,accent}){
     const mode=d.photoComposition||'photo-editorial',frame=PHOTO_FRAMES[mode]||PHOTO_FRAMES['photo-editorial'],asset=d.photoAsset;
     if(!asset?.data)return false;
     d.photoFrame={...frame};
-    const rect=(x,y,w,h,color)=>slide.addShape('rect',{x,y,w,h,line:{color,transparency:100},fill:{color}});
+    const rect=(x,y,w,h,color,transparency=0)=>slide.addShape('rect',{x,y,w,h,line:{color,transparency:100},fill:{color,transparency}});
     const text=(value,x,y,w,h,size,bold=false,color=ink,field='content.photo')=>{
         if(!value)return;
         size=presentationFontSize(field,{bold});
@@ -32,6 +32,20 @@ export function renderPhotoComposition({slide,d,c,t,ink,muted,accent}){
     if(mode==='photo-grid'&&d.photoAssets?.[1])slide.addImage({data:d.photoAssets[1].data,...frame,y:4.8,altText:d.photoAssets[1].altText});
     // Provenance remains in asset metadata and required source credits.
     const disclosure='';
+    if(mode==='hero-full-bleed'){
+        const channels=c.background.match(/../g).map(n=>parseInt(n,16));
+        const darkCanvas=channels[0]*.2126+channels[1]*.7152+channels[2]*.0722<128;
+        const dark=darkCanvas?c.background:ink,light=darkCanvas?ink:c.background;
+        // The photo remains full slide; the translucent lower panel provides
+        // a stable, high-contrast text area without an opaque split cover.
+        rect(0,3.3,13.333333,4.2,dark,6);
+        const v=d.content.titleContent||d.content.sectionContent||{title:d.title,subtitle:d.subtitle,
+            supportingText:d.content.textContent?.body||d.content.visualContent?.text||''};
+        text(v.title,.72,3.65,11.89,1.45,32,true,light,'title.photo');
+        text(v.subtitle,.72,5.3,11.89,.9,21,false,light,'title.subtitle');
+        text(v.supportingText,.72,6.45,11.89,.6,18,false,light,'title.supporting');
+        return true;
+    }
     if(mode==='hero-photo'||mode==='hero-full-bleed'){
         const canvasChannels=c.background.match(/../g).map(n=>parseInt(n,16));
         const darkCanvas=canvasChannels[0]*.2126+canvasChannels[1]*.7152+canvasChannels[2]*.0722<128;

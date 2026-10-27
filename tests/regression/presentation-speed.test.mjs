@@ -21,9 +21,9 @@ test('selective image instructions constrain an over-eager outline before acquis
 });
 test('every-slide and explicit minimum quantities take precedence over selective language',()=>{
  for(const instructions of [`${selective} Every slide must contain an image.`,`${selective} Use at least seven photographs.`])assert.equal(planImageCoverage(deck(),{instructions}).imageCoveragePlan.target,12);
- assert.equal(planImageCoverage(deck(),{instructions:`${selective} No images.`}).imageCoveragePlan.target,0);
+ assert.equal(planImageCoverage(deck(),{instructions:`${selective} No images.`}).imageCoveragePlan.target,1);
  const excluded=planImageCoverage(deck(),{instructions:selective,designPreferences:{noImageSlideNumbers:[1,4,8]}});
- assert.ok(excluded.slides.filter(s=>[1,4,8].includes(s.slideNumber)).every(s=>!s.imageRequirement));
+ assert.ok(excluded.slides[0].imageRequirement.required);assert.ok(excluded.slides.filter(s=>[4,8].includes(s.slideNumber)).every(s=>!s.imageRequirement));
 });
 test('residential words cannot qualify a carpark sign as spa or university building as penthouse',()=>{
  const photo=description=>({mediaKind:'photograph',description});

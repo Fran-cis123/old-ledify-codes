@@ -20,11 +20,10 @@ export function presentationPrefetch({inputType,input,context,options={}}){
         get session(){return session;},entries,
         update(deck){
             if(options.userAssets?.length||options.allowIncompleteImages||options.external===false)return;
-            if(!deck.slides.some(s=>s.content))return;
             const resolved=presentationContext(deck.inferredContext,context);
             const visualContext={...resolved,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')};
             const planned=planImageCoverage(presentationThemeService(deck,resolved),visualContext);
-            const requested=planned.slides.filter(s=>s.content&&s.imageRequirement&&!entries.has(s.slideNumber));
+            const requested=planned.slides.filter(s=>(s.content||s.isCover)&&s.imageRequirement&&!entries.has(s.slideNumber));
             if(!requested.length)return;
             const theme=deriveVisualTheme(planned,visualContext);
             session??=createImageAssetSession({providers:options.providers||configuredImageProviders(),policy:{...imagePolicy(),...options.policy,...(options.providerTimeoutMs?{timeoutMs:options.providerTimeoutMs}:{})},root:path.resolve(options.cacheRoot||storageRoot('visual-assets')),external:true,
@@ -34,7 +33,7 @@ export function presentationPrefetch({inputType,input,context,options={}}){
                     imageDiagnostic({generationType:'presentation',provider:'prefetch',slideNumber:slide.slideNumber,status:'failed',...classifyImageError(error)});
                     return null;
                 });
-                entries.set(slide.slideNumber,{signature:photoSignature(slide),promise});
+                entries.set(slide.slideNumber,{signature:photoSignature(slide,planned,visualContext),promise});
             }
         },
         cancel(){session?.cancel();}

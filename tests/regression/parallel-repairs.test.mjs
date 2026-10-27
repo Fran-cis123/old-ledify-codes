@@ -53,14 +53,15 @@ test('timing separates provider time from validation and reports process resourc
 test('diagram planning overlaps within its cap, retains its three-call budget and preserves slide order',async t=>{
     const root=await fs.mkdtemp(path.join(os.tmpdir(),'ledify-diagrams-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
     const deck={outputType:'presentation',strategyId:'academic-seminar',title:'Evidence review',slides:[1,2,3,4].map(slideNumber=>({slideNumber,slideType:'text-visual',title:'Evidence '+slideNumber,visualRequirement:{role:'foreground',kind:'diagram',description:'Evidence comparison'},content:{visualContent:{text:'Compare the supplied evidence with observations.',visual:{type:'diagram',description:'Evidence comparison',searchQuery:'evidence comparison'}}}}))};
+    deck.slides= [{slideNumber:1,slideType:'title',title:'Evidence review',content:{titleContent:{title:'Evidence review',subtitle:'A laboratory evidence briefing'}}},...deck.slides.map(slide=>({...slide,slideNumber:slide.slideNumber+1}))];
     const ready=presentationRendererService(presentationThemeService(presentationLayoutService(deck)));
     let active=0,peak=0,calls=0;
-    const result=await resolvePresentationVisuals(ready,{instructions:'No photography'},{external:false,cacheRoot:root,diagramConcurrency:2,diagramPlanner:async()=>{
+    const result=await resolvePresentationVisuals(ready,{instructions:'No photography'},{external:true,cacheRoot:root,userAssets:[{buffer:await fs.readFile('assets/webpage/curated/laboratory.jpg'),slideNumber:1,source:'Authorized test fixture',creator:'Fixture',license:'Test fixture',description:'Laboratory evidence review'}],diagramConcurrency:2,diagramPlanner:async()=>{
         calls++;peak=Math.max(peak,++active);await sleep(40);active--;
         return {kind:'labeled',nodes:[{id:'a',label:'Source',description:'Supplied evidence'},{id:'b',label:'Review',description:'Check observations'}],edges:[],caption:'Simplified comparison'};
     }});
     assert.equal(calls,3);assert.equal(peak,2);assert.equal(active,0);
-    assert.deepEqual(result.slides.map(s=>s.slideNumber),[1,2,3,4]);
+    assert.deepEqual(result.slides.map(s=>s.slideNumber),[1,2,3,4,5]);
     assert.equal(result.slides.filter(s=>s.resolvedVisual?.kind==='diagram').length,3);
-    assert.ok(result.warnings.some(w=>w.code==='VISUAL_UNRESOLVED'&&w.slideNumber===4));
+    assert.ok(result.warnings.some(w=>w.code==='VISUAL_UNRESOLVED'&&w.slideNumber===5));
 });

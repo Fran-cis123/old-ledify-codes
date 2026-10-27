@@ -94,7 +94,7 @@ export async function prepareBackground(providerAsset, theme, root, focal = { x:
 export async function resolvePresentationVisuals(presentation, context = {}, options = {}) {
     presentation=planImageCoverage(presentation,context);
     for(const asset of options.userAssets||[]){
-        if(presentation.imageCoveragePlan.reason==='User requested no images'||context.designPreferences?.noImageSlideNumbers?.includes(asset.slideNumber))continue;
+        if(asset.slideNumber!==presentation.slides[0]?.slideNumber&&context.designPreferences?.noImageSlideNumbers?.includes(asset.slideNumber))continue;
         const slide=presentation.slides.find(s=>s.slideNumber===asset.slideNumber);
         if(slide&&!['diagram'].includes(slide.visualRequirement?.kind)&&!slide.content?.chart&&!slide.content?.table){
             slide.visualRequirement={role:slide.slideType==='title'?'background':'foreground',kind:'photo',required:true,description:asset.description,altText:asset.description,searchQuery:asset.description};
@@ -110,16 +110,17 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
     const requested=presentation.slides.filter(s=>s.imageRequirement);
     const assets=await Promise.all(requested.map(async s=>{
         const early=options.prefetch?.entries.get(s.slideNumber);
-        if(early?.signature===photoSignature(s))return early.promise;
+        if(early?.signature===photoSignature(s,presentation,context))return early.promise;
         const direct=(options.userAssets||[]).filter(a=>a.slideNumber===s.slideNumber);
         if(direct.length===2)return Promise.all(direct.map(a=>session.resolve(presentation,s,theme,context,{...a,composition:'photo-grid'})));
         return session.resolve(presentation,s,theme,context);
     }));
     const photos=new Map(requested.map((s,i)=>[s.slideNumber,assets[i]]));
     const missing=requested.filter(s=>!([photos.get(s.slideNumber)].flat().some(Boolean))).map(s=>s.slideNumber);
+    if(missing.includes(presentation.slides[0]?.slideNumber))throw Object.assign(new Error('The required topic-relevant cover background could not be acquired. No successful image-free cover was published. Retry or supply an authorized cover photograph.'),{code:'PRESENTATION_IMAGES_UNAVAILABLE',stage:'presentation-cover',missingSlides:[presentation.slides[0].slideNumber],imageDiagnostics:session.diagnostics});
     if(missing.length&&!strict)warnings.push({code:'PRESENTATION_IMAGES_UNAVAILABLE',stage:'presentation-images',message:'Some requested images were unavailable. The presentation is delivered with readable content and any images that succeeded. Missing images have not been replaced with placeholders or unrelated pictures.',missingSlides:missing,
         imageFailures:session.diagnostics.filter(d=>d.status!=='resolved').map(({slideNumber,method,status,attempt,reasonCode})=>({slideNumber,method,status,attempt,reasonCode}))});
-    if(strict&&missing.some(n=>presentation.imageCoveragePlan.requiredSlideNumbers.includes(n)))throw Object.assign(new Error(requiresAuthenticPhotography(context)&&!requested.some(s=>s.imageRequirement.conceptImage)?'Required authentic photographs could not be resolved. AI image generation is disabled for this request. Check licensed-photo provider network access and search availability, configure PEXELS_API_KEY for an additional photo source, or supply authorized destination photographs.': 'Required presentation pictures could not be resolved. Configure PRESENTATION_ALLOW_IMAGE_GENERATION=true, an accessible GOOGLE_IMAGE_MODEL, sufficient PRESENTATION_MAX_GENERATED_IMAGES/PRESENTATION_MAX_IMAGES and estimated cost budget, or an authorized licensed-image provider. Check provider quota and network access; explicitly request text-only to omit pictures.'),{
+    if(strict&&missing.some(n=>presentation.imageCoveragePlan.requiredSlideNumbers.includes(n)))throw Object.assign(new Error(requiresAuthenticPhotography(context)&&!requested.some(s=>s.imageRequirement.conceptImage)?'Required authentic photographs could not be resolved. Check licensed-photo search or supply authorized images.': 'Required presentation pictures could not be resolved. Configure an approved AI_IMAGE_PROVIDER, its separate credentials, PRESENTATION_ALLOW_IMAGE_GENERATION and a bounded estimated-cost budget, or supply authorized images.'),{
         code:'PRESENTATION_IMAGES_UNAVAILABLE',stage:'presentation-images',missingSlides:missing,imageDiagnostics:session.diagnostics,imageBudget:session.budget.report()
     });
     // Plain typographic compositions are intentional. Never manufacture a decorative
@@ -135,6 +136,7 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
             if(Array.isArray(resolved))slide.photoAssets=resolved.filter(Boolean);
             try{validateRenderContent(slide);slide.visualResolution={status:'resolved',method:photo.generationMethod};return {slide,warnings};}
             catch(error){
+                if(slide.isCover)throw Object.assign(error,{code:'PRESENTATION_IMAGE_LAYOUT_FAILED',stage:'presentation-cover',missingSlides:[slide.slideNumber]});
                 options.onDiagnostic?.({slideNumber:slide.slideNumber,message:error.message,field:error.field});
                 delete slide.photoAsset;delete slide.photoAssets;delete slide.photoComposition;
                 warnings.push({code:'VISUAL_LAYOUT_FALLBACK',stage:'visual-resolution',slideNumber:slide.slideNumber,message:'The photograph was omitted because it could not fit alongside the complete readable content.'});

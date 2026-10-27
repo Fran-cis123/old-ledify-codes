@@ -1,4 +1,6 @@
 import test from 'node:test';
+import {coverAsset} from '../fixtures/coverAsset.mjs';
+import {approvedImageEnv} from '../fixtures/coverAsset.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -74,7 +76,7 @@ test('structured diagrams reject invented connections and duplicate nodes',()=>{
 });
 test('actual PPTX contains subtitles, real media and editable diagram labels; instructions stay private',async t=>{
     const deck=base();deck.slides[1]={slideNumber:2,slideType:'text-visual',title:'Heart anatomy',subtitle:'A simplified chamber and valve schematic',content:{visualContent:{text:'The right side pumps blood to the lungs. The left side pumps blood to the body.',visual:{type:'diagram',description:'Internal request for a four-chamber heart anatomy diagram',searchQuery:'internal anatomy search query'}}}};
-    const visual=await resolvePresentationVisuals(ready(deck),{}, {allowIncompleteImages:true,cacheRoot:await temp(t),external:false});
+    const visual=await resolvePresentationVisuals(ready(deck),{}, {allowIncompleteImages:true,cacheRoot:await temp(t),external:false,userAssets:[await coverAsset()]});
     assert.equal(visual.slides[1].visualResolution.status,'resolved');
     const {buffer}=await generatePresentationBuffer(visual),file=path.join(await temp(t),'presentation.pptx');await fs.writeFile(file,buffer);
     await validateRenderedPptx(file,visual);const zip=await JSZip.loadAsync(buffer),xml=await zip.file('ppt/slides/slide2.xml').async('string');
@@ -86,8 +88,8 @@ test('actual PPTX contains subtitles, real media and editable diagram labels; in
 });
 test('unavailable or unsuitable providers fall back with truthful visual warnings',async t=>{
     let calls=0;const deck=base();deck.slides[0].visualRequirement={role:'background',kind:'photo',required:false,description:'A calm editorial background',searchQuery:'architecture',altText:''};
-    deck.slides[1]={slideNumber:2,slideType:'text-visual',title:'Unavailable product image',content:{visualContent:structuredClone(fixtures.visualContent)}};
-    const visual=await resolvePresentationVisuals(ready(deck),{}, {allowIncompleteImages:true,cacheRoot:await temp(t),providers:{search:async()=>{calls++;throw new Error('Unavailable');},generate:async()=>{calls++;return null;}}});
+    deck.slides[1]={slideNumber:2,slideType:'text-visual',title:'Unavailable product image',content:{visualContent:structuredClone(fixtures.visualContent)},visualRequirement:{role:'foreground',kind:'photo',required:true,description:'A clinical imaging device',searchQuery:'MRI scanner',altText:'MRI scanner'}};
+    const visual=await resolvePresentationVisuals(ready(deck),{}, {allowIncompleteImages:true,cacheRoot:await temp(t),userAssets:[await coverAsset()],providers:{search:async()=>{calls++;throw new Error('Unavailable');},generate:async()=>{calls++;return null;}}});
     assert.equal(calls,1);assert.equal(visual.visualQuality.budget.attempts,0);assert.ok(visual.warnings.some(w=>w.code==='IMAGE_PROVIDER_FALLBACK'));assert.ok(visual.warnings.some(w=>w.code==='VISUAL_UNRESOLVED'));
     assert.equal(visual.slides[1].layoutId,'text-visual-text-fallback');
     assert.equal(visual.slides[0].backgroundAsset,undefined);
@@ -102,7 +104,7 @@ test('photographic backgrounds are cropped without distortion and checked agains
 });
 test('paid image generation needs explicit authorization and model configuration',()=>{
     assert.equal(configuredImageProviders({GEMINI_API_KEY:'present'}).generate,undefined);
-    assert.equal(typeof configuredImageProviders({GEMINI_API_KEY:'present',PRESENTATION_ALLOW_IMAGE_GENERATION:'true',PRESENTATION_IMAGE_MODEL:'configured-model'}).generate,'function');
+    assert.equal(typeof configuredImageProviders({...approvedImageEnv,PRESENTATION_ALLOW_IMAGE_GENERATION:'true'}).generate,'function');
 });
 test('public projection removes nested internal paths and image payloads while preserving metadata',()=>{
     const result=publicGenerationResult({preview:{files:{pptxPath:'C:\\private\\deck.pptx'},slides:[{slideNumber:1,filePath:'C:\\private\\slide.png'}]},generatedContent:{slides:[{resolvedVisual:{data:'image/png;base64,private',filePath:'C:\\private\\asset.png',id:'asset',source:'Original'}}]}});
@@ -127,7 +129,7 @@ test('long approved cover titles retain their full text without arbitrary decora
     const title='Artificial Intelligence: History, Technologies, Applications and Future Developments';
     const content=base();content.title=title;content.subtitle='Understanding the technology transforming our world';
     canonicalTitles(content);validateRenderContent(content.slides[0]);
-    const root=await temp(t),resolved=await resolvePresentationVisuals(ready(content),{}, {allowIncompleteImages:true,external:false,diagramPlanner:false,cacheRoot:root});
+    const root=await temp(t),resolved=await resolvePresentationVisuals(ready(content),{}, {allowIncompleteImages:true,external:false,diagramPlanner:false,cacheRoot:root,userAssets:[await coverAsset('computing-cern.jpg','Computing systems supporting artificial intelligence')]});
     assert.equal(resolved.slides[0].coverArtwork,undefined);assert.equal(resolved.slides[0].backgroundAsset,undefined);
     assert.ok(!resolved.warnings.some(warning=>warning.code==='COVER_LAYOUT_FALLBACK'));assert.equal(resolved.title,title);
     const {buffer}=await generatePresentationBuffer(resolved);const target=path.join(root,'long-title.pptx');await fs.writeFile(target,buffer);
@@ -152,9 +154,10 @@ test('original cardiovascular HTTP request traverses the real rendering pipeline
     const {createGenerationRouter}=await import('../../route/generateRoute.mjs');
     const {generateService}=await import('../../Service/generateService.mjs');
     const approved=JSON.parse(await fs.readFile(new URL('../fixtures/cardiovascular-approved.json',import.meta.url),'utf8'));
+    const testCover=await coverAsset();
     const model={create:async value=>({...value,_id:'fixture',async save(){}})};
     const app=express();app.use(express.json());app.use('/api',createGenerationRouter({model,generator:(kind,input,output,context)=>generateService(kind,input,output,{...context,instructions:'Text-only presentation'},
-        {ai:{initialPresentation:approved,qualityReview:false,client:{models:{generateContent:async()=>{throw new Error('Deterministic regression must not call the provider');}}}},visuals:{allowIncompleteImages:true,external:false,diagramPlanner:false}})}));
+        {ai:{initialPresentation:approved,qualityReview:false,client:{models:{generateContent:async()=>{throw new Error('Deterministic regression must not call the provider');}}}},visuals:{allowIncompleteImages:true,external:false,diagramPlanner:false,userAssets:[testCover]}})}));
     const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});t.after(()=>server.close());
     const baseUrl=`http://127.0.0.1:${server.address().port}`;
     const response=await fetch(baseUrl+'/api/generate/textPrompt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({textPrompt:originalPrompt,outputType:'presentation'})});

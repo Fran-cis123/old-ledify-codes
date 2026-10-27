@@ -1,4 +1,4 @@
-import { Type } from "@google/genai";
+import { Type } from './schemaTypes.mjs';
 
 // INFERRED CONTEXT SCHEMA
 

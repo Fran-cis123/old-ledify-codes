@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
+import {ppmToPng} from './ppmPng.mjs';
 const execute=promisify(execFile);
 
 // Isolate PDF.js globals from the incompatible canvas used by PDF extraction.
@@ -18,15 +19,19 @@ export async function convertPdfToImages({ pdfPath, outputDirectory, timeoutMs =
     if(engine==='auto'||engine==='poppler'){
         const started=Date.now();
         const prefix='render-'+randomUUID(),outputPrefix=path.join(path.resolve(outputDirectory),prefix);
+        const fast=process.env.LEDIFY_PNG_ENCODING!=='poppler';
         try{
-            await execute(process.env.PDFTOPPM_PATH || 'pdftoppm',['-png','-r','144',path.resolve(pdfPath),outputPrefix],{timeout:timeoutMs,windowsHide:true,maxBuffer:1024*1024});
-            const files=(await fs.readdir(outputDirectory)).filter(name=>name.startsWith(prefix+'-') && /-\d+\.png$/.test(name))
-                .sort((a,b)=>Number(a.match(/-(\d+)\.png$/)[1])-Number(b.match(/-(\d+)\.png$/)[1]));
+            await execute(process.env.PDFTOPPM_PATH || 'pdftoppm',[...(fast?[]:['-png']),'-r','144',path.resolve(pdfPath),outputPrefix],{timeout:timeoutMs,windowsHide:true,maxBuffer:1024*1024});
+            const extension=fast?'ppm':'png';
+            const files=(await fs.readdir(outputDirectory)).filter(name=>name.startsWith(prefix+'-') && name.endsWith('.'+extension))
+                .sort((a,b)=>Number(a.match(/-(\d+)\./)[1])-Number(b.match(/-(\d+)\./)[1]));
             if(!files.length)throw new Error('PDF contains no rendered pages');
             const images=[];
             for(const [i,name] of files.entries()){
                 const fileName=`slide-${i+1}.png`,filePath=path.join(path.resolve(outputDirectory),fileName);
-                await fs.rename(path.join(outputDirectory,name),filePath);
+                if(Date.now()-started>=timeoutMs)throw Object.assign(new Error('PNG encoding deadline exceeded'),{killed:true});
+                if(fast){await fs.writeFile(filePath,await ppmToPng(await fs.readFile(path.join(outputDirectory,name))));await fs.unlink(path.join(outputDirectory,name));}
+                else await fs.rename(path.join(outputDirectory,name),filePath);
                 const buffer=await fs.readFile(filePath);
                 if(buffer.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw new Error('Rasterizer returned an invalid PNG');
                 images.push({slideNumber:i+1,fileName,filePath});
@@ -43,6 +48,9 @@ export async function convertPdfToImages({ pdfPath, outputDirectory, timeoutMs =
                 code:error.killed?'PNG_RENDER_TIMEOUT':error.code==='ENOENT'?'PNG_RENDERER_UNAVAILABLE':'PNG_RENDER_FAILED',
                 stage:'png',pageNumber:1,renderer:'poppler',cause:error
             });
+        }finally{
+            // Only this invocation's random-prefix raw pages are temporary.
+            if(fast)for(const name of await fs.readdir(outputDirectory).catch(()=>[]))if(name.startsWith(prefix+'-')&&name.endsWith('.ppm'))await fs.unlink(path.join(outputDirectory,name)).catch(()=>{});
         }
     }
     return new Promise((resolve, reject) => {

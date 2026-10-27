@@ -19,6 +19,10 @@ export async function validateRenderedPptx(filePath, presentation) {
     for(const [i,slide] of presentation.slides.entries()){
         const xml=await zip.file(`ppt/slides/slide${i+1}.xml`).async('string'),$=load(xml,{xmlMode:true});
         const hasMedia=$('p\\:pic').length>0;
+        if(i===0&&presentation.imageCoveragePlan?.coverRequired){
+            const full=$('p\\:pic').toArray().some(node=>{const transform=$(node).find('a\\:xfrm'),off=transform.find('a\\:off'),ext=transform.find('a\\:ext');return Number(off.attr('x'))===0&&Number(off.attr('y'))===0&&Math.abs(Number(ext.attr('cx'))/914400-13.333333)<.01&&Math.abs(Number(ext.attr('cy'))/914400-7.5)<.01;});
+            if(!full||!slide.photoAsset||slide.photoComposition!=='hero-full-bleed')throw Object.assign(new Error('The first slide is missing its full-slide embedded cover background'),{code:'PPTX_REQUIRED_IMAGE_MISSING',stage:'presentation-cover',slideNumber:1,missingSlides:[1]});
+        }
         if(required.has(slide.slideNumber)&&(!hasMedia||!slide.photoAsset))throw Object.assign(new Error(`Slide ${i+1} has no required self-contained photographic/illustrative picture`),{code:'PPTX_REQUIRED_IMAGE_MISSING',stage:'presentation-image-validation',slideNumber:i+1,missingSlides:[i+1]});
         const text=normalize($('a\\:t').map((i,node)=>$(node).text()).get().join(' '));
         const elements=[];

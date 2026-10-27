@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {approvedImageEnv} from '../fixtures/coverAsset.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -30,15 +31,15 @@ const theme={family:'scientific',palette:{accent:'teal'},style:'editorial'};
 
 test('image policy requires explicit cost configuration; retries reserve budget even on failures',()=>{
     const disabled=generationBudget(imagePolicy({}));assert.equal(disabled.reserve(),false);
-    const b=generationBudget(imagePolicy({PRESENTATION_ALLOW_IMAGE_GENERATION:'true',PRESENTATION_IMAGE_ESTIMATED_UNIT_COST:'.04',PRESENTATION_IMAGE_MAX_ESTIMATED_COST:'.08',PRESENTATION_MAX_GENERATED_IMAGES:'4'}));
+    const b=generationBudget(imagePolicy({...approvedImageEnv,PRESENTATION_ALLOW_IMAGE_GENERATION:'true',PRESENTATION_IMAGE_ESTIMATED_UNIT_COST:'.04',PRESENTATION_IMAGE_MAX_ESTIMATED_COST:'.08',PRESENTATION_MAX_GENERATED_IMAGES:'4'}));
     assert.equal(b.reserve(),true);assert.equal(b.reserve(),true);assert.equal(b.reserve(),false);assert.equal(b.report().estimatedReservedCost,.08);
     assert.equal(imagePolicy({PRESENTATION_IMAGE_CONCURRENCY:'100'}).concurrency,3);
     assert.equal(imagePolicy({PRESENTATION_IMAGE_RETRIES:'99'}).retries,2);
 });
-test('visual plans honor no-image requests and do not displace precise diagrams',()=>{
+test('text-only supporting slides retain the required cover and do not displace precise diagrams',()=>{
     const d=structuredClone(imagerySamples[0].presentation),planned=planImageCoverage(d);
     assert.equal(planned.imageCoveragePlan.target,6);assert.equal(planned.slides[6].visualRequirement.kind,'diagram');assert.equal(planned.slides[6].imageRequirement,undefined);
-    const no=planImageCoverage(d,{instructions:'No photographs please.'});assert.equal(no.imageCoveragePlan.target,0);assert.ok(!no.slides.some(s=>s.visualRequirement.kind==='photo'));
+    const no=planImageCoverage(d,{instructions:'No photographs please.'});assert.equal(no.imageCoveragePlan.target,1);assert.ok(no.slides[0].imageRequirement.required);assert.ok(!no.slides.slice(1).some(s=>s.visualRequirement.kind==='photo'));
     const reserved=planImageCoverage(d,{designPreferences:{noImageSlideNumbers:[8]}});assert.equal(reserved.slides[7].visualRequirement.kind,'none');assert.equal(reserved.imageCoveragePlan.target,5);
 });
 test('art direction records audience, message, focal point and synthetic disclosure',()=>{
@@ -69,7 +70,7 @@ test('deck image session caps concurrency, caches decoded assets and rejects dup
 });
 test('timed-out providers are aborted and paid retries never exceed configured estimated budget',async t=>{
     const root=await temp(t),sample=imagerySamples[0];let aborted=false,calls=0;
-    const policy={...imagePolicy({PRESENTATION_ALLOW_IMAGE_GENERATION:'true',PRESENTATION_IMAGE_ESTIMATED_UNIT_COST:'.1',PRESENTATION_IMAGE_MAX_ESTIMATED_COST:'.1'}),timeoutMs:20,retries:2};
+    const policy={...imagePolicy({...approvedImageEnv,PRESENTATION_ALLOW_IMAGE_GENERATION:'true',PRESENTATION_IMAGE_ESTIMATED_UNIT_COST:'.1',PRESENTATION_IMAGE_MAX_ESTIMATED_COST:'.1'}),timeoutMs:20,retries:2};
     const session=createImageAssetSession({root,policy,providers:{generate:async b=>{calls++;b.signal.addEventListener('abort',()=>aborted=true);await new Promise(r=>setTimeout(r,45));return null;}}});
     assert.equal(await session.resolve(sample.presentation,sample.presentation.slides[0],theme,{}),null);assert.equal(aborted,true);assert.equal(calls,1);assert.equal(session.budget.report().attempts,1);
 });
@@ -146,23 +147,23 @@ test('Commons adapter retains genuine licenses and rejects unlicensed or synthet
 });
 test('configured image generation retains provenance without adding a visible synthetic label',async t=>{
     const root=await temp(t),buffer=await photoBuffer();let sent;
-    const env={PRESENTATION_STOCK_PROVIDER:'none',PRESENTATION_ALLOW_IMAGE_GENERATION:'true',PRESENTATION_IMAGE_MODEL:'configured-image-test-model',GEMINI_API_KEY:'test-only-key',PRESENTATION_IMAGE_ESTIMATED_UNIT_COST:'.1',PRESENTATION_IMAGE_MAX_ESTIMATED_COST:'.1',PRESENTATION_IMAGE_RESOLUTION:'2K'};
-    const providers=configuredImageProviders(env,{clientFactory:()=>({models:{generateContent:async request=>{sent=request;return {candidates:[{content:{parts:[{inlineData:{mimeType:'image/jpeg',data:buffer.toString('base64')}}]}}]};}}})});
+    const env={...approvedImageEnv,PRESENTATION_STOCK_PROVIDER:'none',PRESENTATION_ALLOW_IMAGE_GENERATION:'true',PRESENTATION_IMAGE_ESTIMATED_UNIT_COST:'.1',PRESENTATION_IMAGE_MAX_ESTIMATED_COST:'.1'};
+    const providers=configuredImageProviders(env,{imageGenerator:async request=>{sent=request;return {buffer,cacheHit:false};}});
     const sample=structuredClone(imagerySamples[0]);sample.presentation.slides=sample.presentation.slides.slice(0,1);
     const ready=presentationRendererService(presentationThemeService(presentationLayoutService(sample.presentation),sample.context));
     const resolved=await resolvePresentationVisuals(ready,sample.context,{cacheRoot:root,providers,policy:imagePolicy(env)});
     assert.equal(resolved.visualQuality.distribution.illustrations,1);assert.equal(resolved.visualQuality.budget.attempts,1);
-    assert.equal(sent.model,'configured-image-test-model');assert.equal(sent.config.imageConfig.imageSize,'2K');assert.equal(sent.config.imageConfig.aspectRatio,'16:9');assert.ok(sent.contents.includes('not a photograph'));
+    assert.equal(sent.aspectRatio,'16:9');assert.ok(sent.prompt.includes('not a photograph'));
     assert.ok(resolved.slides[0].photoAsset.generationPrompt.includes('Artificial Intelligence'));assert.equal(resolved.slides[0].photoAsset.synthetic,true);
-    const firstPrompt=sent.contents;await providers.generate({...imageBrief(ready,ready.slides[0],theme),attempt:1});
-    assert.notEqual(sent.contents,firstPrompt);assert.match(sent.contents,/Recovery variation 1/);
+    const firstPrompt=sent.prompt;await providers.generate({...imageBrief(ready,ready.slides[0],theme),attempt:1});
+    assert.notEqual(sent.prompt,firstPrompt);assert.match(sent.prompt,/Recovery variation 1/);
     const {buffer:pptx}=await generatePresentationBuffer(resolved),zip=await JSZip.loadAsync(pptx);const xml=await zip.file('ppt/slides/slide1.xml').async('string');assert.ok(!xml.includes('AI-generated illustration'));assert.equal(resolved.slides[0].photoAsset.synthetic,true);
 });
 test('two explicitly supplied photos produce a self-contained editorial grid',async t=>{
     const root=await temp(t),sample=structuredClone(imagerySamples[0]),first=await photoBuffer();
     const second=await sharp(first).modulate({brightness:.8}).jpeg().toBuffer();
     sample.presentation.slides=sample.presentation.slides.slice(0,2);
-    const userAssets=[{...asset(first),slideNumber:2,description:'Laboratory image A'},{...asset(second),slideNumber:2,description:'Laboratory image B'}];
+    const userAssets=[{...asset(await fs.readFile('assets/webpage/curated/medical-mri.jpg')),slideNumber:1,description:'MRI scanner'}, {...asset(first),slideNumber:2,description:'Laboratory image A'},{...asset(second),slideNumber:2,description:'Laboratory image B'}];
     const ready=presentationRendererService(presentationThemeService(presentationLayoutService(sample.presentation),sample.context));
     const resolved=await resolvePresentationVisuals(ready,{...sample.context,designPreferences:{noImageSlideNumbers:[1]}},{external:false,cacheRoot:root,userAssets,policy:{...imagePolicy({}),retries:0}});
     assert.equal(resolved.slides[1].photoComposition,'photo-grid');assert.equal(resolved.slides[1].photoAssets.length,2);

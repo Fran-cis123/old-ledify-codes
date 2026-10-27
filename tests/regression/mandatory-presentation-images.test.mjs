@@ -29,11 +29,10 @@ test('the actual failed ten-slide user PPTX with zero pictures fails the mandato
     assert.equal(Object.keys(zip.files).filter(n=>/^ppt\/media\//.test(n)&&!zip.files[n].dir).length,0);
     await assert.rejects(validateRenderedPptx(file,{slides:Array.from({length:10},(_,i)=>({slideNumber:i+1,title:'Space exploration'}))}),error=>error.code==='PPTX_REQUIRED_IMAGE_MISSING'&&error.slideNumber===1);
 });
-test('missing providers fail clearly; an explicit text-only request succeeds without generated pictures',async t=>{
+test('missing cover providers fail clearly even when supporting slides are text-only',async t=>{
     const deck=ready(structuredClone(imagerySamples[4].presentation));
-    await assert.rejects(resolvePresentationVisuals(deck,{}, {allowIncompleteImages:false,providers:{},cacheRoot:await temporary(t),diagramPlanner:false}),error=>error.code==='PRESENTATION_IMAGES_UNAVAILABLE'&&error.missingSlides.length===6);
-    const text=await resolvePresentationVisuals(deck,{instructions:'Create a text-only presentation.'},{providers:{},cacheRoot:await temporary(t),diagramPlanner:false});
-    assert.equal(text.imageCoveragePlan.required,false);assert.equal(text.imageCoveragePlan.target,0);assert.ok(text.slides.every(s=>!s.photoAsset));
+    await assert.rejects(resolvePresentationVisuals(deck,{}, {allowIncompleteImages:false,providers:{},cacheRoot:await temporary(t),diagramPlanner:false}),error=>error.code==='PRESENTATION_IMAGES_UNAVAILABLE'&&error.missingSlides.includes(1));
+    await assert.rejects(resolvePresentationVisuals(deck,{instructions:'Create a text-only presentation.'},{providers:{},cacheRoot:await temporary(t),diagramPlanner:false}),error=>error.code==='PRESENTATION_IMAGES_UNAVAILABLE'&&error.stage==='presentation-cover');
 });
 test('charts, tables and relationship diagrams retain editable content beside distinct embedded pictures',async t=>{
     const root=await temporary(t),sample=structuredClone(imagerySamples[4].presentation);
@@ -53,5 +52,5 @@ for(const inputType of ['prompt','url','file'])test(`${inputType} generation han
     const root=await temporary(t),handlers=createGenerationHandlers({model:{create:async item=>({...item,save:async()=>{}})},extractFile:async()=> 'Laboratory research',extractUrl:async()=> 'Laboratory research',generator:async()=>resolvePresentationVisuals(ready(structuredClone(imagerySamples[4].presentation)),{}, {allowIncompleteImages:false,providers:{},cacheRoot:root})});
     const req={body:{outputType:'presentation',textPrompt:'Explain laboratory research',urlPrompt:'https://example.org/research'},file:inputType==='file'?{buffer:pdf,originalname:'source.pdf',mimetype:'application/pdf'}:undefined};
     await ({prompt:handlers.userText,url:handlers.userUrl,file:handlers.userFile}[inputType])(req,{status(code){status=code;return this;},json(value){body=value;return value;}});
-    assert.equal(status,503);assert.equal(body.errorCode,'PRESENTATION_IMAGES_UNAVAILABLE');assert.equal(body.missingSlides.length,6);assert.match(body.error,/GOOGLE_IMAGE_MODEL/);
+    assert.equal(status,503);assert.equal(body.errorCode,'PRESENTATION_IMAGES_UNAVAILABLE');assert.deepEqual(body.missingSlides,[1]);assert.match(body.error,/cover/i);
 });

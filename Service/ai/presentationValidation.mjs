@@ -2,6 +2,8 @@ import {validatePresentationContent} from '../presentationContentValidator.mjs';
 import {AiGenerationError} from './responseValidation.mjs';
 import {canonicalTitles} from './presentationQuality.mjs';
 import {presentationLayoutService} from '../presentationLayoutService.mjs';
+import {generateIndependent,generationConcurrency} from './concurrency.mjs';
+import {measureStage} from '../performance.mjs';
 
 export function validateCompletedPresentation(presentation,source) {
     validatePresentationContent({
@@ -13,9 +15,9 @@ export function validateCompletedPresentation(presentation,source) {
     return true;
 }
 
-export async function repairPresentationValidation({presentation,source,requestId,repairSlide}) {
+export async function repairPresentationValidation({presentation,source,requestId,repairSlide,concurrency=2}) {
     for(let round=0;round<=2;round++){
-        try{validateCompletedPresentation(presentation,source);return;}
+        try{await measureStage('presentation-schema-validation',()=>validateCompletedPresentation(presentation,source));return;}
         catch(error){
             const issues=error.validationErrors||[error.message];
             const targets=new Map();
@@ -32,13 +34,14 @@ export async function repairPresentationValidation({presentation,source,requestI
             if(round===2||!targets.size)throw new AiGenerationError('AI_SCHEMA_VALIDATION_FAILED','Presentation still fails content validation',{
                 requestId,stage:'presentation-validation',validationRule:'PRESENTATION_CONTENT',slideNumber:targets.keys().next().value,validationErrors:issues,cause:error
             });
-            for(const [number,requirements] of targets){
+            const snapshot=structuredClone(presentation.slides),approved=[];
+            await generateIndependent([...targets],generationConcurrency(concurrency,2),async([number,requirements])=>{
                 const slide=presentation.slides[number-1];
                 const planned=source?.plannedSlides?.find(item=>item.slideNumber===number);
                 const instructions=[...requirements,
                     'Resolve these exact validation failures in the visible content. Preserve the slide number, semantic type and approved objective.',
                     `Approved objective: ${JSON.stringify(planned || {title:slide.title})}`,
-                    `Other slides (avoid duplicating their title or body): ${JSON.stringify(presentation.slides.filter(item=>item!==slide).map(({slideNumber,title,content})=>({slideNumber,title,content})))}`];
+                    `Other slides (avoid duplicating their title or body): ${JSON.stringify(snapshot.filter(item=>item.slideNumber!==number).map(({slideNumber,title,content})=>({slideNumber,title,content})))}`];
                 if(requirements.some(issue=>/drifted away/i.test(issue))) instructions.push('Make the connection to the presentation topic explicit in the visible body, and explain the approved subtopic using its specific terminology.');
                 if(requirements.some(issue=>/Presentation averages/i.test(issue))) instructions.push('Reduce visible text to fewer than 100 words while preserving essential facts.');
                 const repaired=await repairSlide(structuredClone(slide),instructions.join('\n'));
@@ -47,8 +50,9 @@ export async function repairPresentationValidation({presentation,source,requestI
                 candidate.slideNumber=slide.slideNumber;
                 candidate.slideType=slide.slideType;
                 presentationLayoutService({title:presentation.title,subtitle:presentation.subtitle,slides:[candidate]},source?.context||{});
-                Object.assign(slide,candidate);
-            }
+                return {slide,candidate};
+            },value=>{approved.push(value);});
+            for(const {slide,candidate} of approved)Object.assign(slide,candidate);
             canonicalTitles(presentation);
         }
     }

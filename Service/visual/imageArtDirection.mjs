@@ -17,15 +17,16 @@ export function slidePhotoPolicy(context,slide){
     const text=[context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].join(' ');
     const conceptImage=/\bconcept (?:imagery|images?|illustrations?|vehicles?)\b/i.test(text)&&/\bconcept\b/i.test([slide.title,slide.objective,slide.visualRequirement?.description].join(' '))&&!/\b(?:no|without|never|do not use|avoid)\s+AI[- ]generated/i.test(text);
     const authenticPhotoOnly=requiresAuthenticPhotography(context)&&!conceptImage;
-    return {authenticPhotoOnly,conceptImage,sourceStrategy:authenticPhotoOnly?'licensed-search-first':conceptImage?'generate-first':slide.visualRequirement?.sourceStrategy||'generate-first'};
+    return {authenticPhotoOnly,conceptImage,sourceStrategy:authenticPhotoOnly?'licensed-search-first':conceptImage?'generate-first':slide.visualRequirement?.sourceStrategy||(slide.visualRequirement?.kind==='photo'?'licensed-search-first':'generate-first')};
 }
 export function photoCompositionFor(slide){
+    if(slide.isCover)return 'hero-full-bleed';
     if(slide.slideType==='title')return 'hero-full-bleed';
     if(slide.slideType==='section-divider')return 'photo-divider';
     if(slide.content?.chart||slide.content?.table||slide.content?.relationship||slide.content?.timeline||slide.content?.visualContent?.visual?.diagram)return 'photo-technical';
     return slide.content?.comparison?'photo-comparison':slide.slideNumber%3===0?'photo-panel':'photo-editorial';
 }
-export const photoSignature=slide=>JSON.stringify([slide.title,slide.objective,slide.visualRequirement,photoCompositionFor(slide)]);
+export const photoSignature=(slide,presentation={},context={})=>JSON.stringify([presentation.title,presentation.inferredContext?.topic,slide.title,slide.objective,slide.visualRequirement,photoCompositionFor(slide),imageContextExclusions(context),requiresAuthenticPhotography(context)]);
 export function imageBrief(presentation,slide,theme,context={}){
     const request=slide.imageRequirement||slide.visualRequirement||{};
     const point=context.designPreferences?.imageFocalPoints?.[slide.slideNumber]||context.designPreferences?.imageFocalPoint||{x:.5,y:.5};
@@ -58,12 +59,22 @@ export function generationPrompt(brief){
 }
 export function planImageCoverage(presentation,context={}){
     const noPhotos=wantsTextOnly(context);
-    const slides=presentation.slides.map(s=>({...s}));
+    const slides=presentation.slides.map((s,index)=>({...s,isCover:index===0}));
+    const cover=slides[0];
+    if(cover){
+        const visual=['photo','illustration'].includes(cover.visualRequirement?.kind)?cover.visualRequirement:{};
+        const subject=presentation.inferredContext?.topic||context.topic||presentation.title||cover.title;
+        cover.visualRequirement={...visual,role:'background',kind:visual.kind||'photo',required:true,
+            description:visual.description||`A relevant editorial scene representing ${subject}`,
+            searchQuery:visual.searchQuery||subject,altText:visual.altText||`Illustrative context for ${subject}`,
+            sourceStrategy:visual.sourceStrategy||'licensed-search-first'};
+    }
     const excluded=new Set(Array.isArray(context.designPreferences?.noImageSlideNumbers)?context.designPreferences.noImageSlideNumbers:[]);
-    for(const s of slides)if(excluded.has(s.slideNumber)&&['photo','illustration','texture'].includes(s.visualRequirement?.kind))s.visualRequirement={role:'none',kind:'none',required:false,description:'',searchQuery:'',altText:''};
+    if(cover)excluded.delete(cover.slideNumber);
+    for(const s of slides)if(!s.isCover&&excluded.has(s.slideNumber)&&['photo','illustration','texture'].includes(s.visualRequirement?.kind))s.visualRequirement={role:'none',kind:'none',required:false,description:'',searchQuery:'',altText:''};
     const instructions=[context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].join(' ');
     const all=/\b(?:every|each|all)\s+(?:single\s+)?slides?\b[^.!?\n]{0,120}\b(?:images?|pictures?|photo(?:graph(?:y|s|ic)?)?)\b|\b(?:images?|pictures?|photographs?)\b[^.!?\n]{0,70}\b(?:every|each|all)\s+slides?\b/i.test(instructions);
-    let eligible=slides.filter(s=>!excluded.has(s.slideNumber)&&(all||['photo','illustration'].includes(s.visualRequirement?.kind)));
+    let eligible=slides.filter(s=>s.isCover||!noPhotos&&!excluded.has(s.slideNumber)&&(all||['photo','illustration'].includes(s.visualRequirement?.kind)));
     const selective=/\b(?:images?|pictures?|photographs?|photos?|imagery)\b[^.!?\n]{0,50}\b(?:selectively|sparingly)\b|\b(?:selective|sparse)\s+(?:images?|pictures?|photographs?|photos?|imagery)\b/i.test(instructions);
     const explicitCount=/\b(?:exactly|at least|minimum(?: of)?)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:\w+\s+){0,2}(?:images?|pictures?|photographs?|photos?)\b/i.test(instructions);
     if(selective&&!all&&!explicitCount){
@@ -79,22 +90,22 @@ export function planImageCoverage(presentation,context={}){
         eligible=chosen;
         for(const s of slides)if(!eligible.includes(s)&&['photo','illustration','texture'].includes(s.visualRequirement?.kind))s.visualRequirement={role:'none',kind:'none',required:false,description:'',searchQuery:'',altText:''};
     }
-    const target=noPhotos?0:eligible.length;
+    const target=eligible.length;
     for(const s of slides){
-        if(noPhotos||!eligible.includes(s)){delete s.imageRequirement;delete s.photoAsset;delete s.photoAssets;delete s.photoComposition;continue;}
+        if(!eligible.includes(s)){delete s.imageRequirement;delete s.photoAsset;delete s.photoAssets;delete s.photoComposition;continue;}
         const supplied=['photo','illustration'].includes(s.visualRequirement?.kind)?s.visualRequirement:{};
         const policy=slidePhotoPolicy(context,s);
         const peers=slides.filter(p=>p.slideNumber!==s.slideNumber&&p.visualRequirement?.kind==='photo'&&p.visualRequirement.searchQuery);
         const supporting=policy.authenticPhotoOnly&&peers.length?peers[(s.slideNumber-1)%peers.length].visualRequirement:null;
         // A supporting photo is independent of the slide's editable chart or
         // precise diagram. Never replace scientific evidence with AI imagery.
-        s.imageRequirement={...supplied,role:s.slideType==='title'?'background':'foreground',kind:supplied.kind||'illustration',required:all||supplied.required===true,
+        s.imageRequirement={...supplied,role:s.isCover||s.slideType==='title'?'background':'foreground',kind:supplied.kind||'illustration',required:s.isCover||all||supplied.required===true,
             description:supplied.description||`Contextual editorial illustration supporting ${s.title}. ${s.objective||''} Illustrative context, not evidence of actual events or a named organization's facilities.`,
             searchQuery:supplied.searchQuery||supporting?.searchQuery||[presentation.title,s.title].join(' '),altText:supplied.altText||`Illustrative context for ${s.title}`,...policy};
     }
-    if(noPhotos)for(const s of slides)if(['photo','illustration','texture'].includes(s.visualRequirement?.kind))s.visualRequirement={role:'none',kind:'none',required:false,description:'',searchQuery:'',altText:''};
-    const requiredSlideNumbers=noPhotos?[]:slides.filter(s=>s.imageRequirement?.required).map(s=>s.slideNumber);
-    return {...presentation,slides,imageCoveragePlan:{required:requiredSlideNumbers.length>0,target,requiredSlideNumbers,eligibleSlides:eligible.length,totalSlides:slides.length,reason:noPhotos?'User requested no images':'Pictures are planned where requested; native diagrams, tables and charts do not automatically require supporting photos'}};
+    if(noPhotos)for(const s of slides)if(!s.isCover&&['photo','illustration','texture'].includes(s.visualRequirement?.kind))s.visualRequirement={role:'none',kind:'none',required:false,description:'',searchQuery:'',altText:''};
+    const requiredSlideNumbers=slides.filter(s=>s.imageRequirement?.required).map(s=>s.slideNumber);
+    return {...presentation,slides,imageCoveragePlan:{required:requiredSlideNumbers.length>0,coverRequired:true,coverSlideNumber:cover?.slideNumber,target,requiredSlideNumbers,eligibleSlides:eligible.length,totalSlides:slides.length,reason:noPhotos?'Cover background is mandatory; supporting slides use text-only layouts':'Cover background is mandatory; supporting pictures follow the requested plan'}};
 }
 export function imageCoverage(presentation,diagnostics=[],budget={}){
     const counts={photographs:0,illustrations:0,diagrams:0,charts:0,tables:0,textOnly:0};const sources={};

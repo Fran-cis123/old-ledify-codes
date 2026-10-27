@@ -259,7 +259,7 @@ const generate = async (
         return finish({
 
             ...aiResult,
-            status: imagesUnmet&&strictImages?'incomplete':imagesUnmet&&preview.status==='completed'?'partial_success':preview.status === 'completed' && warnings.length ? 'completed_with_warnings' : preview.status,
+            status: imagesUnmet?'incomplete':preview.status === 'completed' && warnings.length ? 'completed_with_warnings' : preview.status,
             imageValidation,
             warnings,
 

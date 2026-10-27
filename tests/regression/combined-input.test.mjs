@@ -23,7 +23,7 @@ test('generation endpoints expose actionable provider diagnostics with dependenc
     const body=await response.json();
     assert.equal(response.status,502);assert.equal(body.errorCode,'AI_PROVIDER_ERROR');assert.equal(body.providerStatus,400);
     assert.equal(body.providerReason,'INVALID_API_KEY');assert.equal(body.stage,'presentation-outline');assert.ok(body.requestId);
-    assert.match(body.error,/GEMINI_API_KEY/);assert.ok(!JSON.stringify(body).includes('PRIVATE_SECRET'));assert.ok(!JSON.stringify(body).includes('PRIVATE_PROMPT'));
+    assert.match(body.error,/configured text provider/i);assert.ok(!JSON.stringify(body).includes('PRIVATE_SECRET'));assert.ok(!JSON.stringify(body).includes('PRIVATE_PROMPT'));
 });
 
 test('unified JSON/multipart endpoint supports all seven input combinations for all three output choices',async t=>{

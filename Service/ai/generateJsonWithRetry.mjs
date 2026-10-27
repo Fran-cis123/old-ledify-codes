@@ -2,6 +2,7 @@ import { AiGenerationError, parseResponse } from "./responseValidation.mjs";
 import { randomUUID } from "node:crypto";
 import {recordAiAttempt} from '../performance.mjs';
 import {withAiCapacity,noteAiRateLimit} from './providerCapacity.mjs';
+import {invokeText} from './textProvider.mjs';
 
 const recoverable = new Set(["AI_RESPONSE_TRUNCATED", "AI_RESPONSE_EMPTY", "AI_RESPONSE_INCOMPLETE", "AI_JSON_PARSE_FAILED", "AI_SCHEMA_VALIDATION_FAILED", "AI_REPETITIVE_OUTPUT", "AI_TEXT_TOO_LONG"]);
 export function isTransientProviderConnection(error, seen = new Set()) {
@@ -59,7 +60,7 @@ export async function generateJsonWithRetry({ client, request, schema, outputTyp
             response = await withAiCapacity(async()=>{
                 queueWaitMs=performance.now()-started;
                 const providerStarted=performance.now();
-                try{return await client.models.generateContent({ ...request,
+                try{return await invokeText(client,{ ...request,
                 config: { ...request.config,
                     // Document sections spent thousands of reasoning tokens on
                     // short drafts. Preserve the presentation/webpage settings:
@@ -81,7 +82,7 @@ export async function generateJsonWithRetry({ client, request, schema, outputTyp
                 repairHint: String(error.repairHint || error.message || 'Correct the invalid content.').slice(0, 600) }); }
             validationMs=performance.now()-validationStarted;
             logger({ requestId, stage, slideNumber, sectionId, attempt, status: "completed", elapsedMs: performance.now() - started, queueWaitMs,providerMs,validationMs, model: request.model,
-                finishReason: response.candidates[0].finishReason, usage: response.usageMetadata });
+                finishReason: response.candidates[0].finishReason, usage: response.usageMetadata,provider:response.provider,actualModel:response.model,schemaMode:response.schemaMode });
             return value;
             }finally{validationMs=performance.now()-validationStarted;}
         } catch (error) {
@@ -89,8 +90,9 @@ export async function generateJsonWithRetry({ client, request, schema, outputTyp
             const status=Number.isInteger(rawStatus)&&rawStatus>=400&&rawStatus<=599?rawStatus:undefined;
             const hardQuota=status===402||status===429&&/billing (?:is )?(?:disabled|not enabled)|insufficient (?:credits|balance)|payment required|daily quota (?:exceeded|exhausted)|limit\s*[:=]\s*0\b/i.test(String(error.message||''));
             if(!hardQuota)noteAiRateLimit({status,headers:error.headers||error.response?.headers,details:error.error?.details||error.details},request.model);
-            const transient = !hardQuota&&([408, 429, 500, 502, 503, 504].includes(status) || (!status && isTransientProviderConnection(error)));
-            lastError = error instanceof AiGenerationError ? error : new AiGenerationError(error.code==='AI_PROVIDER_BUSY'?'AI_PROVIDER_BUSY':transient ? "AI_PROVIDER_TRANSIENT" : "AI_PROVIDER_ERROR", "AI provider request failed", { providerStatus: status,providerReason:providerReason(error,status) });
+            const transient = !hardQuota&&([408, 429, 500, 502, 503, 504,529].includes(status) || (!status && isTransientProviderConnection(error)));
+            const configuration=/^(?:ANTHROPIC_|CLAUDE_|AI_TEXT_)/.test(error.code||'');
+            lastError = error instanceof AiGenerationError ? error : new AiGenerationError(configuration?error.code:error.code==='AI_PROVIDER_BUSY'?'AI_PROVIDER_BUSY':transient ? "AI_PROVIDER_TRANSIENT" : "AI_PROVIDER_ERROR", "AI provider request failed", { providerStatus: status,providerReason:providerReason(error,status) });
             if(recoverable.has(lastError.code)){
                 for(const issue of lastError.validationErrors||[]){
                     if(typeof issue.field!=='string'||typeof issue.repairHint!=='string')continue;
@@ -108,7 +110,7 @@ export async function generateJsonWithRetry({ client, request, schema, outputTyp
             Object.assign(lastError, { requestId, stage, slideNumber, sectionId, attempt });
             logger({ requestId, stage, slideNumber, sectionId, validationRule:lastError.validationRule, attempt, status: "failed", errorCode: lastError.code, providerStatus: status,providerReason:lastError.providerReason,
                 field: lastError.field, maxCharacters: lastError.maxCharacters,
-                finishReason: response?.candidates?.[0]?.finishReason, usage: response?.usageMetadata, elapsedMs: performance.now() - started, queueWaitMs,providerMs,validationMs, model: request.model });
+                finishReason: response?.candidates?.[0]?.finishReason, usage: response?.usageMetadata, elapsedMs: performance.now() - started, queueWaitMs,providerMs,validationMs, model: request.model,provider:response?.provider,actualModel:response?.model,schemaMode:response?.schemaMode });
             if (!transient && !recoverable.has(lastError.code)) throw lastError;
             if (attempt < maxAttempts) await sleep(transient ? providerRetryDelay(error,attempt) : 100);
         }
