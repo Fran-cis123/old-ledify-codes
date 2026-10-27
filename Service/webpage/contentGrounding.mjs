@@ -13,7 +13,14 @@ const claims=[
     /\b(?:will be|pending|once published|formal corporate registration)\b/i
 ];
 
-export const isInformationalWebsite=(pageType,source)=>pageType==='informational'||pageType==='education'&&!/\b(?:company|business|school|university|academy|institution|organization|organisation|nonprofit|store)\b/i.test(source);
+export function isInformationalWebsite(pageType,source=''){
+    const organization='(?:company|business|school|university|academy|institution|organization|organisation|nonprofit|store)';
+    // "Do not invent a company" and "rather than verified business
+    // achievements" are instructions, not evidence of a corporate website.
+    const negative=new RegExp(`\\b(?:do not|don't|never|avoid|without|rather than)\\b[^.!?\\n]{0,120}\\b${organization}\\b`,'i');
+    const affirmative=source.split(/(?<=[.!?])\s+|\n/).filter(sentence=>!negative.test(sentence)).join(' ');
+    return pageType==='informational'||pageType==='education'&&!new RegExp(`\\b${organization}\\b`,'i').test(affirmative);
+}
 export function validateWebsiteClaims(page,source,{scope,identity=page.brandName,pageType=page.pageType}={}){
     if(!source)return;
     identity ||= source.match(/\b(?:called|named|for)\s+([A-Z][A-Za-z0-9&-]*)\b/)?.[1]||source.match(/^([A-Z][A-Za-z0-9&-]*)\s+is\b/)?.[1];

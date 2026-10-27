@@ -1,7 +1,7 @@
 import {validatePresentationContent} from '../presentationContentValidator.mjs';
 import {AiGenerationError} from './responseValidation.mjs';
 import {canonicalTitles} from './presentationQuality.mjs';
-import {validatePlannedRenderContent} from '../../renderer/presentation/professionalLayouts.mjs';
+import {presentationLayoutService} from '../presentationLayoutService.mjs';
 
 export function validateCompletedPresentation(presentation,source) {
     validatePresentationContent({
@@ -9,7 +9,7 @@ export function validateCompletedPresentation(presentation,source) {
         strategyId:presentation.strategyId,inferredContext:presentation.inferredContext,
         slides:presentation.slides.map(({slideNumber,slideType,title,subtitle,content})=>({slideNumber,slideType,title,subtitle,content}))
     },source);
-    for(const slide of presentation.slides)validatePlannedRenderContent(slide);
+    presentationLayoutService(presentation,source?.context||{});
     return true;
 }
 
@@ -46,7 +46,7 @@ export async function repairPresentationValidation({presentation,source,requestI
                 const candidate=repaired?.content?{...slide,...repaired}:{...slide,content:repaired};
                 candidate.slideNumber=slide.slideNumber;
                 candidate.slideType=slide.slideType;
-                validatePlannedRenderContent(candidate);
+                presentationLayoutService({title:presentation.title,subtitle:presentation.subtitle,slides:[candidate]},source?.context||{});
                 Object.assign(slide,candidate);
             }
             canonicalTitles(presentation);

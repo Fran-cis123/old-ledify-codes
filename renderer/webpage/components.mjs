@@ -1,7 +1,8 @@
+import {isAutomaticImageLabel} from '../imageLabels.mjs';
 export const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const e = escapeHtml;
 // Keep provenance in metadata/credits without overlaying boilerplate on photos.
-const imageCaption=asset=>/^(?:AI-generated conceptual illustration; not an actual photograph of this organization\.|Illustrative stock (?:image|photography)[;. ]+not a photograph of this organization\.)$/i.test((asset.caption||'').trim())?'':asset.caption||'';
+const imageCaption=asset=>isAutomaticImageLabel(asset.caption)?'':asset.caption||'';
 export const button = (label, href, secondary = false) => `<a class="button${secondary ? ' button-secondary' : ''}" href="${e(href)}">${e(label)}<span aria-hidden="true">↗</span></a>`;
 const picture = (asset,hero=false,sizes='(max-width: 820px) 100vw, 65vw') => `<img class="crop-${e(asset.crop || 'center')}" src="${e(asset.url)}" ${asset.variants?.length?`srcset="${asset.variants.map(variant=>`${e(variant.url)} ${variant.width}w`).join(', ')}" sizes="${hero?sizes:'(max-width: 820px) 100vw, 50vw'}"`:''} width="${asset.width}" height="${asset.height}" alt="${e(asset.alt)}" ${hero?'fetchpriority="high"':'loading="lazy" decoding="async"'}>`;
 export function navigation(page) {

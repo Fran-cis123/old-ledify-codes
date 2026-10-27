@@ -142,7 +142,7 @@ test('Commons adapter retains genuine licenses and rejects unlicensed or synthet
     metadata.Categories.value='AI-generated images';const [synthetic]=await commonsCandidates('laboratory');assert.equal(candidateSuitability('laboratory',synthetic),-1);
     metadata.LicenseShortName.value='All rights reserved';assert.equal((await commonsCandidates('laboratory')).length,0);
 });
-test('configured image generation receives detailed direction and renders a disclosed synthetic hero within budget',async t=>{
+test('configured image generation retains provenance without adding a visible synthetic label',async t=>{
     const root=await temp(t),buffer=await photoBuffer();let sent;
     const env={PRESENTATION_STOCK_PROVIDER:'none',PRESENTATION_ALLOW_IMAGE_GENERATION:'true',PRESENTATION_IMAGE_MODEL:'configured-image-test-model',GEMINI_API_KEY:'test-only-key',PRESENTATION_IMAGE_ESTIMATED_UNIT_COST:'.1',PRESENTATION_IMAGE_MAX_ESTIMATED_COST:'.1',PRESENTATION_IMAGE_RESOLUTION:'2K'};
     const providers=configuredImageProviders(env,{clientFactory:()=>({models:{generateContent:async request=>{sent=request;return {candidates:[{content:{parts:[{inlineData:{mimeType:'image/jpeg',data:buffer.toString('base64')}}]}}]};}}})});
@@ -154,7 +154,7 @@ test('configured image generation receives detailed direction and renders a disc
     assert.ok(resolved.slides[0].photoAsset.generationPrompt.includes('Artificial Intelligence'));assert.equal(resolved.slides[0].photoAsset.synthetic,true);
     const firstPrompt=sent.contents;await providers.generate({...imageBrief(ready,ready.slides[0],theme),attempt:1});
     assert.notEqual(sent.contents,firstPrompt);assert.match(sent.contents,/Recovery variation 1/);
-    const {buffer:pptx}=await generatePresentationBuffer(resolved),zip=await JSZip.loadAsync(pptx);const xml=await zip.file('ppt/slides/slide1.xml').async('string');assert.ok(xml.includes('AI-generated illustration'));
+    const {buffer:pptx}=await generatePresentationBuffer(resolved),zip=await JSZip.loadAsync(pptx);const xml=await zip.file('ppt/slides/slide1.xml').async('string');assert.ok(!xml.includes('AI-generated illustration'));assert.equal(resolved.slides[0].photoAsset.synthetic,true);
 });
 test('two explicitly supplied photos produce a self-contained editorial grid',async t=>{
     const root=await temp(t),sample=structuredClone(imagerySamples[0]),first=await photoBuffer();

@@ -5,7 +5,6 @@ import { canonicalTitles, reviewAndRepairPresentation, requestedTopics } from '.
 import { visualRequirementSchema, diagramSchema } from '../templates/presentation/visualSchemas.mjs';
 import { resolveSlideCount } from './ai/slideCount.mjs';
 import { numberedSlideRequirements, validateNumberedRequirements } from './ai/presentationIntent.mjs';
-import { validateRenderContent } from '../renderer/presentation/professionalLayouts.mjs';
 import { randomUUID } from 'node:crypto';
 import { generateJsonWithRetry } from './ai/generateJsonWithRetry.mjs';
 import { generationConcurrency, generateContentUnits as generateInBatches } from './ai/concurrency.mjs';
@@ -16,7 +15,8 @@ import { imageSlideSchema, contentBudgetPrompt } from './ai/presentationContentB
 import { AiGenerationError } from './ai/responseValidation.mjs';
 import { validateQuantitativeGrounding } from './ai/sourceGrounding.mjs';
 import { repairPresentationValidation } from './ai/presentationValidation.mjs';
-import {photoCompositionFor,wantsTextOnly,planImageCoverage} from './visual/imageArtDirection.mjs';
+import {wantsTextOnly,planImageCoverage} from './visual/imageArtDirection.mjs';
+import {presentationLayoutService} from './presentationLayoutService.mjs';
 import {
     GoogleGenAI,
     Type
@@ -1400,11 +1400,10 @@ if (isPresentation) {
                 if (slide.slideType === 'title') content.titleContent = { ...content.titleContent, title: generatedContent.title, subtitle: generatedContent.subtitle || '' };
                 const completedSlide = { ...slide, content };
                 validateSlideContent(completedSlide);
-                if(usesImage){
-                    // Dry-run the actual photo layout while retries are still
-                    // available. The marker never becomes a saved image asset.
-                    validateRenderContent({...completedSlide,photoAsset:{data:'dry-layout-only',altText:'Image area'},photoComposition:photoCompositionFor(completedSlide)});
-                }else validateRenderContent(completedSlide);
+                // Use the same candidate selection as the final renderer;
+                // generic grid validation can approve prose that later fails
+                // in a horizontal process or comparison composition.
+                presentationLayoutService({title:generatedContent.title,subtitle:generatedContent.subtitle,slides:[completedSlide]},context);
                 validateQuantitativeGrounding(completedSlide, input);
             },
             request: {
@@ -1443,6 +1442,7 @@ if (isPresentation) {
     await repairPresentationValidation({presentation:generatedContent,source:{inputType,input,context,plannedSlides},requestId,repairSlide:repairApprovedSlide});
     if (options.qualityReview !== false) generatedContent = await reviewAndRepairPresentation({ presentation: generatedContent,
         input, inputType, context, client, requestId, options, repairSlide: repairApprovedSlide });
+    await repairPresentationValidation({presentation:generatedContent,source:{inputType,input,context,plannedSlides},requestId,repairSlide:repairApprovedSlide});
     const references = Array.isArray(context.references) ? context.references.filter(ref => typeof ref.title === 'string' && /^https:\/\//.test(ref.url || '')) : [];
     for (const slide of generatedContent.slides) slide.references = references.filter(ref => !ref.slideNumbers?.length || ref.slideNumbers.includes(slide.slideNumber)).map(({ title, url }) => ({ title, url }));
     if (context.includeSpeakerNotes === true) {

@@ -90,6 +90,7 @@ Deck: ${JSON.stringify(presentation)}`,
             }
         });
         lastReview = review;
+        await options.onQualityReview?.(structuredClone(review),round);
         const errors = [...review.issues.filter(i => i.severity === 'error' || i.code === 'FACTUAL'),...unsupportedAbsoluteClaims(presentation.slides,input+' '+JSON.stringify(context.referenceMaterials || ''))];
         if (!errors.length) return { ...presentation, quality: { status: review.issues.length ? 'completed_with_warnings' : 'completed', reviewed: true, repairRounds: round, coverage: review.coverage },
             warnings: review.issues.map(i => ({ code: 'CONTENT_' + i.code, stage: 'presentation-quality-review', slideNumber: i.slideNumber, message: i.message })) };
@@ -103,6 +104,11 @@ Deck: ${JSON.stringify(presentation)}`,
         });
         canonicalTitles(presentation);
     }
+    const blocking=lastReview.issues.filter(issue=>['FACTUAL','COVERAGE'].includes(issue.code));
+    const unsupported=unsupportedAbsoluteClaims(presentation.slides,input+' '+JSON.stringify(context.referenceMaterials||''));
+    if(!blocking.length&&!unsupported.length)return {...presentation,
+        quality:{status:'requires_review',reviewed:true,repairRounds:rounds,coverage:lastReview.coverage},
+        warnings:[...(presentation.warnings||[]),...lastReview.issues.map(issue=>({code:'CONTENT_'+issue.code,stage:'presentation-quality-review',slideNumber:issue.slideNumber,message:issue.message})),{code:'PRESENTATION_REVIEW_REQUIRED',stage:'presentation-quality-review',message:'Presentation exported after bounded editorial repairs; review the remaining content warnings before use.'}]};
     throw new AiGenerationError('PRESENTATION_QUALITY_FAILED', 'Presentation quality review still found substantive issues after bounded slide repairs',
         { requestId, stage: 'presentation-quality-review', slideNumber: lastReview.issues.find(i => i.severity === 'error')?.slideNumber });
 }

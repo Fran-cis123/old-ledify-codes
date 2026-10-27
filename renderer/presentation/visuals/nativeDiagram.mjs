@@ -40,7 +40,7 @@ export function renderNativeDiagram({ slide, diagram, box, ink, accent, fontFace
         slide.addText(value,{x:cols===2?anchor.x:x+nodeW+.25,y:cols===2?anchor.y+rowH-.35*legendRows+lane*.35:anchor.y+rowH*.6,w:labelW,h:labelH,fontFace,fontSize:18,color:ink,margin:0,_field:field});
     }
     for(const [i,node] of positions.entries()){
-        const size=cols===2?20:21,labelH=cols===2?Math.max(.4,Math.min(.8,rowH*.26)):.38,descH=Math.min(.8,rowH-labelH-(cols===2?.2+.35*legendRows:.2));
+        const size=20,labelH=cols===2?Math.max(.4,Math.min(.8,rowH*.26)):.38,descH=Math.min(.8,rowH-labelH-(cols===2?.2+.35*legendRows:.2));
         const add=(value,yy,hh,fs,bold,field)=>{
             if(!value) return; assertTextFits(value,{w:nodeW-.3,h:hh,fontSize:fs},field,slideNumber);
             slide.addText(value,{x:node.x,y:yy,w:nodeW-.3,h:hh,fontSize:fs,fontFace,color:ink,bold,margin:0,breakLine:false,valign:'top',_field:field});

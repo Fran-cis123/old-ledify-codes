@@ -1,5 +1,6 @@
 import {assertTextFits} from './contentFit.mjs';
 import {renderNativeDiagram} from './visuals/nativeDiagram.mjs';
+import {presentationFontSize} from './typography.mjs';
 
 export const PHOTO_FRAMES={
     'hero-full-bleed':{x:0,y:0,w:13.333333,h:7.5},
@@ -19,6 +20,7 @@ export function renderPhotoComposition({slide,d,c,t,ink,muted,accent}){
     const rect=(x,y,w,h,color)=>slide.addShape('rect',{x,y,w,h,line:{color,transparency:100},fill:{color}});
     const text=(value,x,y,w,h,size,bold=false,color=ink,field='content.photo')=>{
         if(!value)return;
+        size=presentationFontSize(field,{bold});
         try{assertTextFits(String(value),{w,h,fontSize:size},field,d.slideNumber);}catch(error){
             if(field==='content.photo')error.repairHint=`The combined visible text from all content fields must fit at most ${error.maxCharacters} characters. Shorten prose and item descriptions together; content.photo is a layout diagnostic, not a JSON property. Preserve essential facts.`;
             throw error;
@@ -28,7 +30,8 @@ export function renderPhotoComposition({slide,d,c,t,ink,muted,accent}){
     slide.background={color:c.background};
     slide.addImage({data:asset.data,...frame,altText:asset.altText});
     if(mode==='photo-grid'&&d.photoAssets?.[1])slide.addImage({data:d.photoAssets[1].data,...frame,y:4.8,altText:d.photoAssets[1].altText});
-    const disclosure=(d.photoAssets||[asset]).some(a=>a.artDirection?.conceptImage)?'Illustrative concept':(d.photoAssets||[asset]).some(a=>a.synthetic)?'AI-generated illustration':'Illustrative photograph';
+    // Provenance remains in asset metadata and required source credits.
+    const disclosure='';
     if(mode==='hero-photo'||mode==='hero-full-bleed'){
         const canvasChannels=c.background.match(/../g).map(n=>parseInt(n,16));
         const darkCanvas=canvasChannels[0]*.2126+canvasChannels[1]*.7152+canvasChannels[2]*.0722<128;

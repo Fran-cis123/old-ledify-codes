@@ -13,6 +13,7 @@ import { createDiagramPlanner } from './visual/diagramPlanner.mjs';
 import { documentArtifactService } from './document/documentArtifactService.mjs';
 import {measureStage,profileGeneration,performanceReport} from './performance.mjs';
 import {presentationPrefetch} from './visual/presentationPrefetch.mjs';
+import {resolveSlideCount} from './ai/slideCount.mjs';
 
 import {
     presentationLayoutService
@@ -65,6 +66,7 @@ const generate = async (
         outputType,
         context, aiOptions
     ));}catch(error){early?.cancel();throw error;}
+    try{
     await options.onContentReady?.(aiResult);
     timings.aiMs=Math.round(performance.now()-started);
     const artifactStarted=performance.now();
@@ -103,6 +105,9 @@ const generate = async (
     }
 
     if (outputType === "presentation") {
+        const countPolicy=resolveSlideCount(inputType==='prompt'?input:'',context);
+        const actualCount=aiResult.generatedContent?.slides?.length;
+        if(countPolicy.source!=='default'&&actualCount!==countPolicy.min)throw Object.assign(new Error(`Expected ${countPolicy.min} slides; received ${actualCount}.`),{code:'AI_SCHEMA_VALIDATION_FAILED',stage:'presentation-validation',field:'slides',expectedSlides:countPolicy.min,actualSlides:actualCount});
 
         // -------------------------------------------------
         // GET AI-INFERRED CONTEXT
@@ -121,6 +126,7 @@ const generate = async (
         // -------------------------------------------------
 
         const resolvedContext = {
+            instructions:context.instructions||'',
 
             userRole:
                 context?.userRole ||
@@ -274,6 +280,7 @@ const generate = async (
     // =====================================================
 
     return finish(aiResult);
+    }finally{early?.cancel();}
 
 };
 export const generateService=(...args)=>profileGeneration(()=>generate(...args),args[4]?.performance);

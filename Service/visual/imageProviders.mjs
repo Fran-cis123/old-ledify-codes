@@ -34,6 +34,11 @@ export function stockSearchQueries(query,{slideTitle,subject}={}){
 export function candidateSuitability(query,asset,{partial=false}={}){
     const title=decodeURIComponent((asset.originalUrl||'').split('File:')[1]||'').replace(/_/g,' ').toLowerCase(),description=(asset.description||'').toLowerCase(),categories=(asset.categories||'').toLowerCase();
     const combined=[title,description,categories].join(' '),historical=/histor|archive|vintage|19[0-5]\d/.test(query.toLowerCase());
+    if(!/\b(?:crime|forensic|investigation|evidence|epstein)\b/i.test(query)&&/\b(?:Epstein|police department search|crime scene|evidence exhibit|EFTA\d+)\b/i.test(combined))return -1;
+    if(/\b(?:painting|oil on canvas|etching|lithograph)\b/i.test(combined))return -1;
+    if(!historical&&/\b(?:modern|contemporary)\b/i.test(query)&&/\b(?:built|constructed|completed|dating|designed)\b[^.!?]{0,35}\b(?:17\d\d|18\d\d|19[0-4]\d)\b/i.test(description))return -1;
+    if(/\b(?:modern|contemporary)\b/i.test(query)&&/\b(?:mansion|villa|penthouse|residential|living room)\b/i.test(query)&&!/\b(?:modern|contemporary|modernist|minimalist|mid.century)\b/i.test(title+' '+description))return -1;
+    if(/\bluxury\b/i.test(query)&&/\b(?:typical rural|reconstruction|derelict|abandoned|boarded.up)\b/i.test(title+' '+description))return -1;
     // Match the requested scene itself, not incidental residential vocabulary.
     for(const [requested,evidence] of [
         [/\bspa\b/i,/\b(?:spa|wellness|sauna|plunge pool)\b/i],
@@ -71,7 +76,7 @@ export async function commonsCandidates(query,{signal,limit=6}={}){
         const attributionRequired=m.AttributionRequired?.value==='true'||/^CC BY/.test(license);
         if(/^CC BY/.test(license)&&!/^https?:\/\/creativecommons.org\/licenses\//.test(m.LicenseUrl?.value||''))return [];
         const classification=[page.title,m.Categories?.value,m.Credit?.value,description].join(' ');
-        const mediaKind=/AI.generated|AI generated|Stable Diffusion|DALL.E|Midjourney|Qwen.image|Flux.1/i.test(classification)?'synthetic':/BioArt|illustration|diagram|schematic|drawing|rendering|3D model|screenshot|\blogo\b/i.test(classification)?'illustration':'photograph';
+        const mediaKind=/AI.generated|AI generated|Stable Diffusion|DALL.E|Midjourney|Qwen.image|Flux.1/i.test(classification)?'synthetic':/BioArt|illustration|diagram|schematic|drawing|painting|oil on canvas|rendering|3D model|screenshot|\blogo\b/i.test(classification)?'illustration':'photograph';
         return [{source:'Wikimedia Commons',creator,license,licenseUrl:m.LicenseUrl?.value||'https://creativecommons.org/publicdomain/mark/1.0/',mediaKind,creationYear:Number(plain(m.DateTimeOriginal?.value).match(/\b(?:18|19|20)\d{2}\b/)?.[0])||null,
             sourceType:'licensed-stock',assetId:String(page.pageid),originalUrl:info.descriptionurl,originalFileUrl:info.url,downloadUrl,description,categories:plain(m.Categories?.value).replace(/\|/g,' '),
             attributionRequired,attribution:`${creator} — ${license}. Source: ${info.descriptionurl}. Changes: resized, compressed and cropped by Ledify.`,generationMethod:'licensed-search',width:info.width,height:info.height}];

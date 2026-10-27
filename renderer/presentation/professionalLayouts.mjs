@@ -7,6 +7,8 @@ import { validateDiagram } from './visuals/svgGraphics.mjs';
 import { geometryRecorder } from './geometry.mjs';
 import {renderPhotoComposition} from './photoCompositions.mjs';
 import {photoCompositionFor} from '../../Service/visual/imageArtDirection.mjs';
+import {presentationFontSize} from './typography.mjs';
+import {isAutomaticImageLabel} from '../imageLabels.mjs';
 
 const W = 13.333333, H = 7.5, M = .72, CW = W - M * 2;
 const luminance = hex => {
@@ -39,6 +41,8 @@ function renderSlide({ slide, slideData: d, tokens = {}, pptx }) {
     const rect = (x, y, w, h, color) => slide.addShape('rect', { x, y, w, h, line: { color, transparency: 100 }, fill: { color } });
     const text = (value, x, y, w, h, size = 22, extra = {}, field = 'content') => {
         if (value == null || value === '') return;
+        if(field==='visual.caption'&&isAutomaticImageLabel(value))return;
+        size=presentationFontSize(field,{bold:extra.bold});
         value = String(value);
         assertTextFits(value, { w, h, fontSize: size }, field, d.slideNumber);
         slide.addText(value, { x, y, w, h, fontFace: t.bodyFamily, fontSize: size, color: ink,
@@ -207,7 +211,7 @@ function renderSlide({ slide, slideData: d, tokens = {}, pptx }) {
         if (!chartType) throw new Error(`Slide ${d.slideNumber}: unsupported chart.chartType "${v.chartType}"`);
         const values=v.datasets.flatMap(ds=>ds.values),isBar=['bar','column'].includes(v.chartType);
         slide.addChart(chartType, v.datasets.map(ds => ({ name: ds.label, labels: v.labels, values: ds.values })), {
-            x: M, y: top, w: d.layoutId==='chart-with-insight'?7.8:CW, h: d.layoutId==='chart-with-insight'?4.05:3.55, catAxisLabelFontSize: 20, valAxisLabelFontSize: 18,
+            x: M, y: top, w: d.layoutId==='chart-with-insight'?7.8:CW, h: d.layoutId==='chart-with-insight'?4.05:3.55, catAxisLabelFontSize: 18, valAxisLabelFontSize: 18,
             showLegend: true, legendFontSize: 18, showTitle: false,
             chartColors: [accent, ink, muted], showBorder: false, showValue: false,
             catAxisLabelColor: ink, valAxisLabelColor: ink, legendColor: ink,
