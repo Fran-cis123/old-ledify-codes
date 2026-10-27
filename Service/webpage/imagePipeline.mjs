@@ -13,6 +13,7 @@ import {rankCuratedPhotos} from './curatedSelection.mjs';
 import {relevanceDiagnostic} from '../visual/imageRelevance.mjs';
 import {generationConcurrency,generateIndependent} from '../ai/concurrency.mjs';
 import {classifyImageError,imageBackoff,imageDiagnostic} from '../visual/imageAssetService.mjs';
+import {requiresConceptImage} from './imageIntent.mjs';
 
 const bundledCatalog=fileURLToPath(new URL('../../assets/webpage/curated/catalog.json',import.meta.url));
 const safeCreditUrl=value=>{try{const url=new URL(value);url.search='';url.hash='';return url.protocol==='https:'&&!url.username&&!url.password?url.href:'';}catch{return '';}};
@@ -70,6 +71,7 @@ export async function acquireWebsiteImages(page,context={},options={}){
             if(selected.some(asset=>matches(asset,target)))return;
             if(selected.length>=policy.maxAssets||Date.now()-started>=policy.totalMs)return;
             for(const provider of providers){
+                if(requiresConceptImage(target)&&['commons','pexels'].includes(provider.id))continue;
                 if(disabled.has(provider.id))continue;
                 let resolved=false;
                 for(let attempt=0;attempt<=policy.retries;attempt++){
@@ -96,6 +98,7 @@ export async function acquireWebsiteImages(page,context={},options={}){
         try{
             const entries=JSON.parse(await fs.readFile(options.curatedManifest || bundledCatalog,'utf8'));
             for(const target of requests){
+                if(requiresConceptImage(target))continue;
                 if(selected.length>=policy.maxAssets)break;
                 if(selected.some(asset=>matches(asset,target)))continue;
                 let rejected=0;
@@ -120,7 +123,9 @@ export async function acquireWebsiteImages(page,context={},options={}){
         image:selected.find(asset=>asset.role==='section'&&(asset.sectionId?asset.sectionId===section.id:asset.sectionType===section.type)),
         items:section.items.map(item=>({...item,image:selected.find(asset=>asset.role==='item'&&(asset.sectionId?asset.sectionId===section.id:asset.sectionType===section.type)&&asset.itemTitle===item.title)}))}));
     for(const section of sections)if(['image-text','image-band'].includes(section.composition)&&!section.image)section.composition='editorial';
-    for(const section of sections)if(section.type==='gallery')section.items=section.items.filter(item=>item.image);
+    // Keep approved descriptions even if an image is missing. The renderer
+    // supports text-only collection items without broken image placeholders.
+    for(const section of sections)if(section.type==='gallery'&&section.items.some(item=>!item.image))section.composition='editorial';
     const hero=selected.find(asset=>asset.role==='hero');
     if(!hero)warnings.push({code:'WEBPAGE_IMAGERY_UNAVAILABLE',message:'No matching authorized hero image was acquired. The website uses a content-led layout.'});
     const unmet=requests.filter(target=>!selected.some(asset=>matches(asset,target)));

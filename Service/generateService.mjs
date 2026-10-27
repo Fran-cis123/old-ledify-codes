@@ -77,6 +77,7 @@ const generate = async (
     // =====================================================
 
     if (outputType === 'webpage') {
+        context={...context,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')};
         const normalized=webpageLayoutService(aiResult.generatedContent,{...context,topic:context.topic||input.slice(0,4000)});
         const requested=context.websiteBrief || {};
         if(requested.name)normalized.brandName=requested.name;
@@ -84,7 +85,7 @@ const generate = async (
         if(context.designPreferences?.heroComposition)normalized.designSpec.heroComposition=context.designPreferences.heroComposition;
         const designed=await measureStage('website-design',()=>planWebpageDesign(normalized,context));
         designed.websiteBrief=compileWebsiteBrief(designed,input,context);
-        const resolved = await measureStage('website-images',()=>acquireWebsiteImages(webpageThemeService(designed, context), {...context,instructions:[context.instructions,inputType==='prompt'?input:''].filter(Boolean).join('\n')}, options.webpageAssets));
+        const resolved = await measureStage('website-images',()=>acquireWebsiteImages(webpageThemeService(designed, context), context, options.webpageAssets));
         const page = resolved.page;
         const rendered=await measureStage('website-html-css-js',()=>webpageRenderer(page,resolved.assets));
         const inspected = await measureStage('website-validation',()=>inspectWebsite(rendered,options.webpageQuality));
@@ -94,8 +95,11 @@ const generate = async (
         if(artifacts.status!=='completed'&&page.imageStrategy.plan.some(p=>p.required))page.imageValidation={...page.imageValidation,status:'incomplete',export:'failed'};
         timings.renderMs=Math.round(performance.now()-artifactStarted);
         const needsReview=page.contentSpecification?.missingInformation.length||resolved.warnings.length||inspected.warnings.length||inspected.report.browser!=='passed';
-        return finish({ ...aiResult, generatedContent: page,imageValidation:page.imageValidation, status: page.imageValidation?.status==='incomplete'?'incomplete':artifacts.status==='completed'&&needsReview?'completed_with_warnings':artifacts.status, artifacts,
-            warnings: [...(page.warnings || []),...(page.limitations || []).map(message => ({ code: 'STATIC_SCOPE_LIMITATION', message })), ...resolved.warnings, ...inspected.warnings, ...artifacts.warnings] });
+        const imagesUnmet=page.imageValidation?.status==='incomplete';
+        const strictImages=(options.webpageAssets?.policy?.failureMode||process.env.WEBPAGE_IMAGE_FAILURE_MODE)==='strict';
+        return finish({ ...aiResult, generatedContent: page,imageValidation:page.imageValidation, status: imagesUnmet&&strictImages?'incomplete':artifacts.status==='completed'&&(needsReview||imagesUnmet)?'completed_with_warnings':artifacts.status, artifacts,
+            warnings: [...(page.warnings || []),...(page.limitations || []).map(message => ({ code: 'STATIC_SCOPE_LIMITATION', message })), ...resolved.warnings, ...inspected.warnings, ...artifacts.warnings,
+                ...(imagesUnmet?[{code:'IMAGE_REQUIREMENTS_UNMET',stage:'image-validation',message:'Website files are available, but some requested images could not be acquired. Review the missing placements before publishing.',missingTargets:page.imageValidation.requiredMissing||[]}]:[])] });
     }
     if (outputType === 'document') {
         const document=aiResult.generatedContent;

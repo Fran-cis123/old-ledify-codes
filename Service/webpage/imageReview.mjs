@@ -1,5 +1,6 @@
 import {evaluateImageRelevance,imageTopicDomains} from '../visual/imageRelevance.mjs';
 import {isPhotographicStock} from '../visual/imageMedia.mjs';
+import {requiresConceptImage,isConceptAsset} from './imageIntent.mjs';
 const concepts={
     space:/\b(?:spacecraft|astronauts?|rockets?|lunar|martian|mars|orbital|planetary|deep[ -]space)\b/i,
     literary:/\b(?:reading|literary|books?|library|stories|storytelling|chapters)\b/i,
@@ -33,9 +34,11 @@ export function centralImageSubject(page){
     return {description:central,concepts:preferred};
 }
 export function reviewImageCandidate(record,target,{width,height}={}){
+    if(requiresConceptImage(target))target={...target,topic:target.query,centralConcepts:undefined};
     const provenance=Boolean(record.creator?.trim()&&record.license?.trim());
     const stock=/Wikimedia|Pexels|curated catalog/i.test(record.source||'')||record.sourceType==='licensed-stock';
     const photographic=!stock||isPhotographicStock(record);
+    const intentMatch=!requiresConceptImage(target)||isConceptAsset(record);
     const candidate=groups([record.subject,record.alt,...(record.keywords||[])].join(' '));
     const desired=target.centralConcepts?.length?target.centralConcepts:groups(target.query);
     const compatible=desired.some(name=>candidate.includes(name)||(name==='community'&&candidate.includes('literary')));
@@ -48,5 +51,5 @@ export function reviewImageCandidate(record,target,{width,height}={}){
     const resolutionScore=width&&height?Math.min(1,Math.min(width,height*1.6)/minimum):1;
     const aspect=width&&height?width/height:1.5;
     const placementSuitability=aspect>=.6&&aspect<=3.2;
-    return {accepted:photographic&&provenance&&semanticScore>=.8&&resolutionScore>=.75&&placementSuitability,semanticScore,resolutionScore,placementSuitability,provenance,reason:!photographic?'NON_PHOTOGRAPHIC_STOCK':semanticScore>=.8?'METADATA_MATCH':relevance.reason==='METADATA_MATCH'?'TOPIC_MISMATCH':relevance.reason,method:'metadata-and-dimensions',limits:'No independent computer-vision or subjective aesthetic certification.'};
+    return {accepted:intentMatch&&photographic&&provenance&&semanticScore>=.8&&resolutionScore>=.75&&placementSuitability,semanticScore,resolutionScore,placementSuitability,provenance,reason:!intentMatch?'CONCEPT_IMAGE_REQUIRED':!photographic?'NON_PHOTOGRAPHIC_STOCK':semanticScore>=.8?'METADATA_MATCH':relevance.reason==='METADATA_MATCH'?'TOPIC_MISMATCH':relevance.reason,method:'metadata-and-dimensions',limits:'No independent computer-vision or subjective aesthetic certification.'};
 }
