@@ -64,6 +64,13 @@ export function relevantSearchQuery(target={}){
     const local=target.sectionTopic||target.slideTitle||'';
     const topic=target.topic||target.subject||target.query||target.searchQuery||'';
     const names=imageTopicDomains(topic+' '+local);
+    if(names.includes('renewable')){
+        const direction=local||target.query||target.searchQuery||topic;
+        if(/\b(?:solar|photovoltaic)\b/i.test(direction))return 'solar farm photovoltaic panels landscape';
+        if(/\bwind\b/i.test(direction))return 'wind turbines wind farm landscape';
+        if(/\bhydro(?:power|electric)?\b/i.test(direction))return 'hydroelectric dam power station';
+        if(/\bgeothermal\b/i.test(direction))return 'geothermal power station';
+    }
     const anchors={computing:'artificial intelligence computer',architecture:'residential architecture',marine:'marine wildlife',agriculture:'agriculture farming',renewable:'renewable energy',medicalTechnology:'medical technology',finance:'financial planning'};
     return [local,anchors[names[0]]||topic].filter(Boolean).join(' ').replace(/[^\p{L}\p{N}\s-]/gu,' ').replace(/\s+/g,' ').trim().slice(0,160);
 }

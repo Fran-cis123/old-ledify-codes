@@ -8,12 +8,16 @@ import { validateUploadedFile } from '../Service/input/fileValidation.mjs';
 import { combineGenerationInput } from '../Service/input/combinedInput.mjs';
 import { addPresentationPublicUrls } from '../Service/presentationPublicUrls.mjs';
 import {prepareInputImageAssets,validateVisualAssetInputs} from '../Service/visual/inputImageAssets.mjs';
-import {profileGeneration,measureStage} from '../Service/performance.mjs';
+import {profileGeneration,measureStage,performanceReport} from '../Service/performance.mjs';
 import {generationJobs} from '../Service/generationJobs.mjs';
 import {validateTextPrompt} from '../Service/input/promptValidation.mjs';
 
-export function createGenerationHandlers({ model = generateModel, generator = generateService, extractFile = fileService, extractUrl = urlService,jobRoot,jobOptions={} } = {}) {
+export function createGenerationHandlers({ model = generateModel, generator = generateService, extractFile = fileService, extractUrl = urlService,jobRoot,jobOptions={},deliveryLogger=event=>console.info('[GENERATION_DELIVERY]',JSON.stringify(event)) } = {}) {
     const handle = inputType => (req, res) => profileGeneration(async() => {
+        const deliveryStarted=performance.now(),deliveryRequestId=performanceReport()?.requestId;
+        res.once?.('close',()=>{
+            if(!res.writableFinished)try{deliveryLogger({requestId:deliveryRequestId,status:'client-disconnected',elapsedMs:Math.round(performance.now()-deliveryStarted),outputType:['presentation','webpage','document'].includes(req.body?.outputType)?req.body.outputType:'unknown'});}catch{}
+        });
         let record;
         try {
             if(!req.body||typeof req.body!=='object'||Array.isArray(req.body))throw invalid('Provide a JSON object for text or URL requests, or a multipart form for the file endpoint.');
@@ -51,7 +55,7 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
             record = await databaseOperation('database-create',()=>model.create({ inputType:kind, input: label, outputType, status: 'processing' }));
             if(req.get?.('Prefer')?.split(',').some(value=>value.trim()==='respond-async')){
                 const job=await generationJobs({...jobOptions,generator,model,root:jobRoot}).enqueue({kind,input,outputType,context,recordId:String(record._id),options:visualInput?.assets.length?{visuals:{userAssets:visualInput.assets}}:{}});
-                res.set?.('Preference-Applied','respond-async');res.set?.('Location',job.statusUrl);
+                res.set?.('Preference-Applied','respond-async');res.set?.('Location',job.statusUrl);res.set?.('Retry-After','2');
                 return res.status(202).json({message:'Generation queued',data:job});
             }
             let result = await generator(kind, input, outputType, context,visualInput?.assets.length?{visuals:{userAssets:visualInput.assets}}:{});

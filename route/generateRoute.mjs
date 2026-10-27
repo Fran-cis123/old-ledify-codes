@@ -24,7 +24,7 @@ export function createGenerationRouter(options = {}) {
     const handlers = createGenerationHandlers(options);
     const jobs=()=>generationJobs({generator:options.generator||generateService,model:options.model||generateModel,root:options.jobRoot});
     router.get('/generation-jobs/:id/:token',async(req,res)=>{
-        try{const job=await jobs().read(req.params.id,req.params.token);if(job.result)job.result=addPresentationPublicUrls(job.result,req);res.set('Cache-Control','no-store');res.json({data:job});}
+        try{const job=await jobs().read(req.params.id,req.params.token);if(job.result)job.result=addPresentationPublicUrls(job.result,req);res.set('Cache-Control','no-store');if(['queued','processing'].includes(job.status))res.set('Retry-After','2');res.json({data:job});}
         catch(error){res.status(error.status||500).json({message:error.status===404?'Job not found':'Unable to read generation job'});}
     });
     router.post('/generation-jobs/:id/:token/retry',async(req,res)=>{

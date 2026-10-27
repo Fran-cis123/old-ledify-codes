@@ -7,6 +7,7 @@ import {commonsMetadata} from './commonsMetadata.mjs';
 import {imageDiagnostic,classifyImageError} from './imageAssetService.mjs';
 import {evaluateImageRelevance,relevanceDiagnostic} from './imageRelevance.mjs';
 import {bundledPhotoSearch} from './bundledPhotoSearch.mjs';
+import {isPhotographicStock} from './imageMedia.mjs';
 
 const plain=value=>load(String(value||'')).text().replace(/\s+/g,' ').trim().slice(0,1600);
 export function stockSearchQueries(query,{slideTitle,subject}={}){
@@ -55,7 +56,7 @@ export function candidateSuitability(query,asset,{partial=false}={}){
         if(!/\b(?:tram|cable car|rail|train|repair|restoration)\b/i.test(query)&&/\b(?:cable[ -]?cars?|streetcars?|trams?|railway|trolley|missing parts|broken|dismantled|diecast|toy cars?|abandoned|deployed airbag|damaged|worn|derelict|rusted|rusty|dilapidated|disused)\b/i.test(combined))return -1;
     }
     if(!historical&&(/restoration|\bnara\b|\b190\d\b|\b191\d\b/.test(combined)||Number(asset.creationYear)>0&&Number(asset.creationYear)<1970))return -1;
-    if(asset.mediaKind!=='photograph')return -1;
+    if(asset.mediaKind!=='photograph'||!isPhotographicStock(asset))return -1;
     if(/tablet press/i.test(query)&&!combined.includes('tablet press'))return -1;
     if(/mri|scanner/i.test(query)&&/scanner building|building.*hospital/.test(title))return -1;
     const tokens=query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu)?.filter(t=>!['file','jpg','png','photograph','photo','image','modern','professional','device'].includes(t))||[];
@@ -76,7 +77,7 @@ export async function commonsCandidates(query,{signal,limit=6}={}){
         const attributionRequired=m.AttributionRequired?.value==='true'||/^CC BY/.test(license);
         if(/^CC BY/.test(license)&&!/^https?:\/\/creativecommons.org\/licenses\//.test(m.LicenseUrl?.value||''))return [];
         const classification=[page.title,m.Categories?.value,m.Credit?.value,description].join(' ');
-        const mediaKind=/AI.generated|AI generated|Stable Diffusion|DALL.E|Midjourney|Qwen.image|Flux.1/i.test(classification)?'synthetic':/BioArt|illustration|diagram|schematic|drawing|painting|oil on canvas|rendering|3D model|screenshot|\blogo\b/i.test(classification)?'illustration':'photograph';
+        const mediaKind=/AI.generated|AI generated|Stable Diffusion|DALL.E|Midjourney|Qwen.image|Flux.1/i.test(classification)?'synthetic':!isPhotographicStock({description:classification})||/BioArt|rendering|3D model/i.test(classification)?'illustration':'photograph';
         return [{source:'Wikimedia Commons',creator,license,licenseUrl:m.LicenseUrl?.value||'https://creativecommons.org/publicdomain/mark/1.0/',mediaKind,creationYear:Number(plain(m.DateTimeOriginal?.value).match(/\b(?:18|19|20)\d{2}\b/)?.[0])||null,
             sourceType:'licensed-stock',assetId:String(page.pageid),originalUrl:info.descriptionurl,originalFileUrl:info.url,downloadUrl,description,categories:plain(m.Categories?.value).replace(/\|/g,' '),
             attributionRequired,attribution:`${creator} — ${license}. Source: ${info.descriptionurl}. Changes: resized, compressed and cropped by Ledify.`,generationMethod:'licensed-search',width:info.width,height:info.height}];
