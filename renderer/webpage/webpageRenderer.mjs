@@ -2,10 +2,12 @@ import {escapeHtml as e,navigation,hero,renderSection,footer} from './components
 import {stylesheet,script,bootstrap} from './styles.mjs';
 import {validateWebpageContent} from '../../Service/webpageContentValidator.mjs';
 import {defineSitePages,pageLink} from '../../Service/webpage/sitePages.mjs';
+import {validateWebpageBindings} from '../../Service/visual/assetBinding.mjs';
 
 export function webpageRenderer(page,assets={}){
     if(!page.theme?.colors||!page.sections?.[0]?.id)throw new Error('Expected a normalized, themed webpage');
     validateWebpageContent(page);
+    validateWebpageBindings(page,assets);
     const pages=defineSitePages(page);
     const files={'style.css':stylesheet(page.theme),'script.js':script,'bootstrap.js':bootstrap,...assets,
         'assets/icons/favicon.svg':`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="${page.theme.colors.primary}"/><path d="M18 18h10v28H18zm18 0h10v28H36z" fill="${page.theme.colors.accent}"/></svg>`};

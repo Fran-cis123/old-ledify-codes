@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {imagePolicy,generationBudget} from './imagePolicy.mjs';
 import {imageBrief} from './imageArtDirection.mjs';
 import {PHOTO_FRAMES} from '../../renderer/presentation/photoCompositions.mjs';
@@ -9,6 +9,8 @@ import {imageSpecificationSchema} from '../../templates/presentation/visualSchem
 import {validateSchema} from '../ai/responseValidation.mjs';
 import {storeImageAsset,atomicImageJson,classifyImageError,imageBackoff,imageDiagnostic} from './imageAssetService.mjs';
 import {evaluateImageRelevance,relevanceDiagnostic} from './imageRelevance.mjs';
+import {bindImageAsset} from './assetBinding.mjs';
+import {performanceRequestId} from '../performance.mjs';
 
 export async function normalizePhoto(asset,brief,root,policy){
     if(!asset?.source||!asset.creator||!asset.license||(asset.attributionRequired&&!asset.attribution))throw new Error('Incomplete image usage rights or provenance');
@@ -39,12 +41,12 @@ export async function normalizePhoto(asset,brief,root,policy){
 
 // One deck-scoped session: global provider concurrency, generation budget and duplicate detection.
 export function createImageAssetSession({providers={},policy=imagePolicy(),root,external=true,userAssets=[],onDiagnostic}){
-    const budget=generationBudget(policy),diagnostics=[],used=new Set(),usedSources=new Set(),disabled=new Set();let active=0;const waiting=[];
+    const budget=generationBudget(policy),diagnostics=[],used=new Set(),usedSources=new Set(),disabled=new Set(),requestId=performanceRequestId()||randomUUID();let active=0;const waiting=[];
     const deadline=Date.now()+(policy.deadlineMs||45000);
     const record=entry=>{diagnostics.push(entry);onDiagnostic?.(entry);imageDiagnostic({generationType:'presentation',provider:entry.method||'planner',...entry});};
     const limited=async fn=>{if(active>=policy.concurrency)await new Promise(r=>waiting.push(r));else active++;try{return await fn();}finally{const next=waiting.shift();if(next)next();else active--;}};
     let selected=0,cancelled=false;const controllers=new Set();
-    return {diagnostics,budget,
+    return {diagnostics,budget,requestId,
         cancel(){cancelled=true;for(const controller of controllers)controller.abort();},
         async resolve(presentation,slide,theme,context,directOverride){
             if(cancelled||!policy.enabled||selected>=policy.maxImages){record({slideNumber:slide.slideNumber,status:'skipped',reasonCode:cancelled?'CANCELLED':!policy.enabled?'IMAGES_DISABLED':'IMAGE_LIMIT_REACHED'});return null;}selected++;
@@ -61,17 +63,18 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                 // Exact scientific diagrams may never be replaced by synthetic pictures.
                 if(method==='generate'&&(brief.kind==='diagram'||/precise anatomy|histolog|diagnostic (?:scan|image)|radiograph/i.test(brief.description)))continue;
                 const identity=method==='user'?direct.assetId||'user':(providers.identity||'injected-provider')+(method==='search'?':licensed-search-v3':'');
-                const cacheKey=createHash('sha256').update(JSON.stringify({version:2,brief,identity,method,quality:policy.quality})).digest('hex');
+                const cacheKey=createHash('sha256').update(JSON.stringify({version:4,brief,identity,method,quality:policy.quality})).digest('hex');
                 const cachePath=path.join(root,cacheKey+'.json');
                 if(method!=='user')try{
                     const meta=JSON.parse(await fs.readFile(cachePath,'utf8'));
+                    if(meta.cacheKey!==cacheKey||!/^([a-f0-9]{64})$/.test(meta.id||''))throw new Error('Photograph cache context mismatch');
                     if(method==='search'&&(!evaluateImageRelevance(meta,brief).accepted||providers.validateSearchAsset&&!providers.validateSearchAsset(brief,meta)))throw new Error('Cached photograph does not match the requested subject');
                     if(brief.authenticPhotoOnly&&(meta.generationMethod==='ai-generated'||meta.synthetic||meta.mediaKind&&meta.mediaKind!=='photograph'))throw new Error('Cached asset is not an authentic photograph');
                     if(Date.now()-meta.cachedAt<policy.cacheDays*86400000){
                         const filePath=path.join(root,meta.id+'.jpeg'),buffer=await fs.readFile(filePath);
                         if(createHash('sha256').update(buffer).digest('hex')!==meta.id)throw new Error('Cache checksum failed');
                         await sharp(buffer,{limitInputPixels:32000000}).stats();
-                        if(!usedSources.has(meta.sourceChecksum)&&!used.has(meta.id)){used.add(meta.id);usedSources.add(meta.sourceChecksum);record({slideNumber:slide.slideNumber,method,status:'resolved',cacheHit:true,model:meta.model});return {...meta,filePath,data:'image/jpeg;base64,'+buffer.toString('base64'),cacheHit:true};}
+                        if(!usedSources.has(meta.sourceChecksum)&&!used.has(meta.id)){used.add(meta.id);usedSources.add(meta.sourceChecksum);record({slideNumber:slide.slideNumber,method,status:'resolved',cacheHit:true,model:meta.model});return bindImageAsset({...meta,filePath,data:'image/jpeg;base64,'+buffer.toString('base64'),cacheHit:true},brief,requestId);}
                     }
                 }catch{}
                 for(let attempt=0;attempt<=policy.retries;attempt++){
@@ -104,10 +107,10 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                             const sourceKey=Buffer.isBuffer(candidate.buffer)?createHash('sha256').update(candidate.buffer).digest('hex'):'';
                             if(usedSources.has(sourceKey))throw new Error('Duplicate image in presentation');
                             usedSources.add(sourceKey);reservation=sourceKey;
-                            const asset=await normalizePhoto(candidate,brief,root,policy);
+                            const asset=bindImageAsset(await normalizePhoto(candidate,brief,root,policy),brief,requestId);
                             if(used.has(asset.id))throw new Error('Duplicate image in presentation');
                             used.add(asset.id);usedSources.add(asset.sourceChecksum);
-                            if(method!=='user'){const {data,filePath,...meta}=asset;try{await atomicImageJson(cachePath,{...meta,cachedAt:Date.now()});}catch{record({slideNumber:slide.slideNumber,method,status:'cache-unavailable',reasonCode:'IMAGE_CACHE_STORAGE_FAILED'});}}
+                            if(method!=='user'){const {data,filePath,binding,...meta}=asset;try{await atomicImageJson(cachePath,{...meta,cacheKey,cachedAt:Date.now()});}catch{record({slideNumber:slide.slideNumber,method,status:'cache-unavailable',reasonCode:'IMAGE_CACHE_STORAGE_FAILED'});}}
                             record({slideNumber:slide.slideNumber,method,status:'resolved',attempt:attempt+1,model:asset.model,storage:'saved',validation:'passed',elapsedMs:Date.now()-started});return {asset};
                         }catch(error){if(reservation)usedSources.delete(reservation);const info=classifyImageError(error);if(['IMAGE_INVALID_CREDENTIALS','IMAGE_ACCESS_DENIED','IMAGE_MODEL_UNAVAILABLE','IMAGE_REQUEST_REJECTED','IMAGE_BILLING_UNAVAILABLE'].includes(info.reasonCode))disabled.add(method);record({slideNumber:slide.slideNumber,method,status:'failed',attempt:attempt+1,...info,elapsedMs:Date.now()-started});return {stop:!info.retryable||error.code==='PHOTO_PROVIDER_RATE_LIMITED'||method==='search'&&info.reasonCode==='PROVIDER_TIMEOUT',retryError:error};}
                         finally{clearTimeout(timer);controller.abort();controllers.delete(controller);}

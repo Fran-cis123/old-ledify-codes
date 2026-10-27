@@ -11,6 +11,8 @@ import {prepareInputImageAssets,validateVisualAssetInputs} from '../Service/visu
 import {profileGeneration,measureStage,performanceReport} from '../Service/performance.mjs';
 import {generationJobs} from '../Service/generationJobs.mjs';
 import {validateTextPrompt} from '../Service/input/promptValidation.mjs';
+import {withGenerationCapacity} from '../Service/generationCapacity.mjs';
+import {inputAdmission} from '../Service/input/admission.mjs';
 
 export function createGenerationHandlers({ model = generateModel, generator = generateService, extractFile = fileService, extractUrl = urlService,jobRoot,jobOptions={},deliveryLogger=event=>console.info('[GENERATION_DELIVERY]',JSON.stringify(event)) } = {}) {
     const handle = inputType => (req, res) => profileGeneration(async() => {
@@ -55,13 +57,17 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
             const visualInput=outputType==='presentation'?await prepareInputImageAssets(context,req.file):null;
             if(visualInput)context=visualInput.context;
             if(outputType==='presentation')resolveSlideCount(kind==='prompt'?input:'',context);
+            // Extracted text and explicitly selected image buffers now own the
+            // input; do not retain a large original upload while waiting for AI.
+            if(req.file)delete req.file.buffer;
+            req[inputAdmission]?.release();
             record = await databaseOperation('database-create',()=>model.create({ inputType:kind, input: label, outputType, status: 'processing' }));
             if(req.get?.('Prefer')?.split(',').some(value=>value.trim()==='respond-async')){
                 const job=await generationJobs({...jobOptions,generator,model,root:jobRoot}).enqueue({kind,input,outputType,context,recordId:String(record._id),options:visualInput?.assets.length?{visuals:{userAssets:visualInput.assets}}:{}});
                 res.set?.('Preference-Applied','respond-async');res.set?.('Location',job.statusUrl);res.set?.('Retry-After','2');
                 return res.status(202).json({message:'Generation queued',data:job});
             }
-            let result = await generator(kind, input, outputType, context,visualInput?.assets.length?{visuals:{userAssets:visualInput.assets}}:{});
+            let result = await withGenerationCapacity(()=>generator(kind, input, outputType, context,visualInput?.assets.length?{visuals:{userAssets:visualInput.assets}}:{}));
             if(sources)result={...result,sources};
             result = publicGenerationResult(result);
             result = addPresentationPublicUrls(result,req);
@@ -94,7 +100,7 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
                 console.error('[DATABASE]',JSON.stringify({errorCode:code,stage:error.stage,errorType:error.databaseErrorType}));
                 return res.status(503).json({message:'Database is temporarily unavailable',error:'The server could not save the generation request. Check MongoDB connectivity and retry.',errorCode:code,stage:error.stage});
             }
-            if(['GENERATION_QUEUE_FULL','AI_PROVIDER_BUSY'].includes(code)){res.set?.('Retry-After','15');return res.status(503).json({message:'Generation capacity is occupied. Retry shortly.',errorCode:code});}
+            if(['GENERATION_QUEUE_FULL','GENERATION_CAPACITY_BUSY','AI_PROVIDER_BUSY','PRESENTATION_RENDER_BUSY'].includes(code)){res.set?.('Retry-After','15');return res.status(503).json({message:'Generation capacity is occupied. Retry shortly.',errorCode:code});}
             if(error.validationErrors?.length) console.error('[GENERATION_VALIDATION]',JSON.stringify({requestId:error.requestId,stage:error.stage,validationErrors:error.validationErrors}));
             console.error('[GENERATION]',JSON.stringify({errorCode:code,stage:error.stage||'generation',requestId:error.requestId,slideNumber:error.slideNumber,sectionId:error.sectionId,validationRule:error.validationRule,field:error.field,maxCharacters:error.maxCharacters,lastErrorCode:error.lastErrorCode,providerStatus:error.providerStatus,providerReason:error.providerReason,model:error.model}));
             if(['PRESENTATION_IMAGES_UNAVAILABLE','PRESENTATION_IMAGE_LAYOUT_FAILED','PPTX_REQUIRED_IMAGE_MISSING'].includes(code))return res.status(code==='PRESENTATION_IMAGES_UNAVAILABLE'?503:422).json({message:'Presentation image requirements could not be completed',error:error.message,errorCode:code,stage:error.stage,missingSlides:error.missingSlides,

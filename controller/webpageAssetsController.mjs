@@ -43,6 +43,8 @@ export function webpageAssetHandlers(root = WEBPAGE_ROOT) {
             const filename = Array.isArray(req.params.file) ? req.params.file.join('/') : req.params.file;
             if (!found.metadata.allowedFiles.includes(filename)) return res.sendStatus(404);
             if(found.metadata.imageHashes?.[filename]){
+                const binding=found.metadata.imageBindings?.[filename];
+                if(binding&&(binding.sha256!==found.metadata.imageHashes[filename]||found.metadata.requestId&&binding.requestId!==found.metadata.requestId))return res.status(404).json({message:'Image asset association is invalid',errorCode:'IMAGE_DELIVERY_FAILED'});
                 try{const buffer=await fs.readFile(path.join(found.directory,'site',filename));if(createHash('sha256').update(buffer).digest('hex')!==found.metadata.imageHashes[filename])throw new Error('Checksum mismatch');return res.type(path.extname(filename)).send(buffer);}
                 catch{imageDiagnostic({generationType:'webpage',provider:'artifact-store',status:'failed',reasonCode:'IMAGE_DELIVERY_FAILED',storage:'unavailable',validation:'failed'});return res.status(404).json({message:'Image asset is missing or invalid',errorCode:'IMAGE_DELIVERY_FAILED'});}
             }

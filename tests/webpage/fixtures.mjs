@@ -114,7 +114,7 @@ fixtures.event={
 };
 fixtures.schoolExpressive={...fixtures.school,title:'Cedar After Hours',source:fixtures.school.source.replaceAll('Cedar Learning','Cedar After Hours')+' Use an expressive dark geometric identity with a gradient and searchable learning topics.',visualDirection:'Expressive dark learning discovery; geometric headings, purposeful gradient, searchable topics.',creativeDirection:direction({personality:'expressive dark',background:'gradient',geometry:'round',typeScale:'expressive',ctaStyle:'pill',interactions:['search']}),designSpec:{paletteId:'midnight-electric',fontPair:'geometric',heroComposition:'editorial',motion:'none',navigation:'static'}};
 export function fixtureDraft(fixture) {
-    return { description: fixture.hero.subheadline, hero: fixture.hero, sections: fixture.sections.map(({background,composition,...section})=>section), contact: fixture.contact, callToAction: fixture.cta };
+    return structuredClone({ description: fixture.hero.subheadline, hero: fixture.hero, sections: fixture.sections.map(({background,composition,...section})=>section), contact: fixture.contact, callToAction: fixture.cta });
 }
 fixtures.fashion={
     title:'Thread & Form',pageType:'ecommerce',preset:'editorial',

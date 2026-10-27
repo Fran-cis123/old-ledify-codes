@@ -4,7 +4,7 @@ import {load} from 'cheerio';
 import {generationPrompt} from './imageArtDirection.mjs';
 import {imagePolicy} from './imagePolicy.mjs';
 import {commonsMetadata} from './commonsMetadata.mjs';
-import {imageDiagnostic,classifyImageError} from './imageAssetService.mjs';
+import {imageDiagnostic,classifyImageError,withImageCapacity} from './imageAssetService.mjs';
 import {evaluateImageRelevance,relevanceDiagnostic} from './imageRelevance.mjs';
 import {bundledPhotoSearch} from './bundledPhotoSearch.mjs';
 import {isPhotographicStock} from './imageMedia.mjs';
@@ -141,5 +141,6 @@ export function configuredImageProviders(env = process.env,{clientFactory}={}) {
             return commonsSearch(request);
         };
     }
+    if(providers.search){const search=providers.search;providers.search=request=>withImageCapacity('licensed-stock',()=>search(request),{concurrency:2,signal:request.signal});}
     return providers;
 }

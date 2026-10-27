@@ -24,11 +24,12 @@ export async function generateGoogleImage(request,options={}){
     if(!['1:1','2:3','3:2','3:4','4:3','4:5','5:4','9:16','16:9','21:9'].includes(aspectRatio))throw failure('IMAGE_BRIEF_INVALID','Unsupported image aspect ratio');
     // Flash 2.5 Image has fixed output size; newer image models accept imageSize.
     const imageConfig={aspectRatio,...(request.resolution&&!/gemini-2\.5-flash-image/.test(model)?{imageSize:request.resolution}:{})};
-    const id=digest(JSON.stringify({version:2,account:digest(env.GEMINI_API_KEY),model,prompt,imageConfig}));
+    const id=digest(JSON.stringify({version:3,account:digest(env.GEMINI_API_KEY),model,prompt,imageConfig}));
     const cache=options.cache??!options.client;
     const root=path.resolve(options.cacheRoot||env.GOOGLE_IMAGE_CACHE_DIR||storageRoot('google-image-cache'));
     if(cache)try{
         const meta=JSON.parse(await fs.readFile(path.join(root,id+'.json'),'utf8'));
+        if(meta.requestHash!==id)throw new Error('Generated image cache context mismatch');
         if(!/^[a-f0-9]{64}\.(?:png|jpeg|webp)$/.test(meta.assetFile||''))throw new Error('Invalid cached path');
         if(!Number.isFinite(meta.createdAt)||Date.now()-meta.createdAt>7*86400000)throw new Error('Expired');
         const buffer=await fs.readFile(path.join(root,meta.assetFile));
@@ -53,7 +54,7 @@ export async function generateGoogleImage(request,options={}){
             const inline=result.candidates?.[0]?.content?.parts?.find(part=>/^image\/(png|jpeg|webp)$/.test(part.inlineData?.mimeType||''))?.inlineData;
             if(!inline?.data||inline.data.length>16*1024*1024)throw failure('IMAGE_EMPTY_RESPONSE','Google returned no usable image data');
             const buffer=Buffer.from(inline.data,'base64'),metadata=await validate(buffer);
-            const meta={model,sha256:digest(buffer),createdAt:Date.now(),mimeType:`image/${metadata.format}`,width:metadata.width,height:metadata.height};
+            const meta={model,requestHash:id,sha256:digest(buffer),createdAt:Date.now(),mimeType:`image/${metadata.format}`,width:metadata.width,height:metadata.height};
             // Save a verified source even when caching is disabled for a live run.
             if(cache||!options.client){
                 await fs.mkdir(root,{recursive:true});

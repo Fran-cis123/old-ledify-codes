@@ -43,7 +43,7 @@ export function planWebsiteImages(page,context={}){
         ...(!conceptImagery&&/\b(?:photographs?|photography|photographed)\b/i.test(instructions)?{visualIntent:'photograph'}:{}),
         ...(exactObjects&&image.role==='item'&&['products','projects'].includes(image.sectionType)?{identityLabel:imageIdentityLabel(image.itemTitle,namedLabels)}:{}),
         ...(image.role==='hero'&&requestedHero?{query:requestedHero,centralConcepts:undefined,alt:requestedHero}:{}),
-        topic:page.inferredContext?.topic||page.title,sectionTopic:image.itemTitle||page.sections.find(section=>section.id===image.sectionId)?.heading||'',
+        topic:page.inferredContext?.topic||page.title,subjectContext:central.description,primaryTopic:page.inferredContext?.topic||page.title,sectionTopic:image.itemTitle||page.sections.find(section=>section.id===image.sectionId)?.heading||'',
         exclusions:imageContextExclusions(context),
         required:image.required??(image.role==='item'||image.role==='section'&&everySection||image.role==='hero'&&(requireImages||['full-bleed','image-led'].includes(page.designBrief.heroComposition))),purpose:image.purpose||image.sectionType+' content: '+(image.itemTitle||image.query),lighting:image.lighting||page.websiteBrief?.photography.lighting||'natural',temperature:image.temperature||page.websiteBrief?.photography.temperature||'neutral',focalPoint:image.focalPoint||page.websiteBrief?.photography.crop||'center',method:image.method||'authorized-source-or-configured-generation'}));
 }

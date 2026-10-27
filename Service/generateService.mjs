@@ -14,6 +14,8 @@ import { documentArtifactService } from './document/documentArtifactService.mjs'
 import {measureStage,profileGeneration,performanceReport} from './performance.mjs';
 import {presentationPrefetch} from './visual/presentationPrefetch.mjs';
 import {resolveSlideCount} from './ai/slideCount.mjs';
+import {withGenerationCapacity} from './generationCapacity.mjs';
+import {webpageImageManifest} from './visual/assetBinding.mjs';
 
 import {
     presentationLayoutService
@@ -67,6 +69,7 @@ const generate = async (
         context, aiOptions
     ));}catch(error){early?.cancel();throw error;}
     try{
+    aiResult=structuredClone(aiResult);
     await options.onContentReady?.(aiResult);
     timings.aiMs=Math.round(performance.now()-started);
     const artifactStarted=performance.now();
@@ -91,7 +94,7 @@ const generate = async (
         const inspected = await measureStage('website-validation',()=>inspectWebsite(rendered,options.webpageQuality));
         page.quality={...page.quality,validation:inspected.report};
         page.websiteSpecification=websiteSpecification(page);
-        const artifacts = await measureStage('website-packaging',()=>webpageArtifactService(inspected.files, options.artifacts));
+        const artifacts = await measureStage('website-packaging',()=>webpageArtifactService(inspected.files, {...options.artifacts,imageBindings:webpageImageManifest(page,inspected.files)}));
         if(artifacts.status!=='completed'&&page.imageStrategy.plan.some(p=>p.required))page.imageValidation={...page.imageValidation,status:'incomplete',export:'failed'};
         timings.renderMs=Math.round(performance.now()-artifactStarted);
         const needsReview=page.contentSpecification?.missingInformation.length||resolved.warnings.length||inspected.warnings.length||inspected.report.browser!=='passed';
@@ -287,4 +290,4 @@ const generate = async (
     }finally{early?.cancel();}
 
 };
-export const generateService=(...args)=>profileGeneration(()=>generate(...args),args[4]?.performance);
+export const generateService=(...args)=>profileGeneration(()=>withGenerationCapacity(()=>generate(...args)),args[4]?.performance);

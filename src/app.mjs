@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 
 import { createGenerationRouter } from '../route/generateRoute.mjs';
+import {admitGenerationInput} from '../Service/input/admission.mjs';
 
 // Separate application construction from the MongoDB/listen lifecycle so the
 // actual production middleware can be exercised with injected test services.
@@ -14,6 +15,7 @@ export function createApp(options={}) {
     app.get('/healthz',(req,res)=>res.json({status:'alive'}));
     app.get('/readyz',(req,res)=>{const ready=options.isReady?.()!==false;res.set('Cache-Control','no-store');res.status(ready?200:503).json({status:ready?'ready':'starting'});});
     app.use('/api/generate',(req,res,next)=>{if(options.isReady?.()!==false)return next();res.set('Retry-After','3');return res.status(503).json({errorCode:'SERVICE_NOT_READY',stage:'admission',message:'The service is connecting to its database. Retry shortly.'});});
+    app.use(['/api/generate','/api/presentations/source-images'],admitGenerationInput);
     app.use(express.json({limit:'16mb'}));
     app.use('/api',createGenerationRouter(options));
     app.get('/',(req,res)=>res.json({message:'Ledify backend API',generationEndpoint:'/api/generate',buildCommit:process.env.RENDER_GIT_COMMIT||null}));

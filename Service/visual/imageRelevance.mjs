@@ -1,3 +1,5 @@
+import {metadataSubjectEvidence} from './subjectEvidence.mjs';
+import {createHash} from 'node:crypto';
 // A matching request is not evidence about the returned image's contents.
 const domains={
     automotive:/\b(?:automotive|automobiles?|cars?|supercars?|hypercars?|vehicles?|sedans?|SUVs?|motorsport|powertrains?|cockpits?|headlamps?|headlights?|alloy wheels?)\b/i,
@@ -35,16 +37,19 @@ export function imageContextExclusions(context={}){
 }
 export function candidateImageText(record={}){
     let fileTitle='';try{fileTitle=decodeURIComponent(String(record.originalUrl||record.sourceUrl||'').split('File:')[1]?.split(/[?#]/)[0]||'').replace(/_/g,' ');}catch{}
-    return [record.title,fileTitle,record.subject,record.alt,record.description,record.categories,...(Array.isArray(record.keywords)?record.keywords:[])].filter(Boolean).join(' ');
+    return [record.title,fileTitle,record.industry,record.subject,record.alt,record.description,record.categories,...(Array.isArray(record.keywords)?record.keywords:[])].filter(Boolean).join(' ');
 }
 export function evaluateImageRelevance(record,target={}){
-    const overall=target.topic||target.subject||'',local=target.sectionTopic||target.slideTitle||'';
+    const overall=target.subjectContext||target.topic||target.subject||'',local=target.sectionTopic||target.slideTitle||'';
     const query=target.query||target.searchQuery||'';
-    const localDomains=imageTopicDomains(local),primaryDomains=imageTopicDomains(overall),queryDomains=imageTopicDomains(query);
+    const declaredDomains=imageTopicDomains(target.primaryTopic||'');
+    const localDomains=imageTopicDomains(local),primaryDomains=declaredDomains.length?declaredDomains:imageTopicDomains(overall),queryDomains=imageTopicDomains(query);
     const medicalScene=localDomains.length===1&&localDomains[0]==='computing'&&queryDomains.includes('medicalTechnology');
     const metaphoricalArchitecture=localDomains.includes('architecture')&&primaryDomains.length&&!primaryDomains.includes('architecture')&&!/\b(?:houses?|homes?|buildings?|skyscrapers?|mansions?|villas?|penthouses?|residential|real estate)\b/i.test(local+' '+query);
     const placementDomains=metaphoricalArchitecture?localDomains.filter(name=>name!=='architecture'):localDomains;
-    const desired=medicalScene?['medicalTechnology']:placementDomains.length?placementDomains:primaryDomains.length?primaryDomains:queryDomains;
+    // A style/setting query must not redefine an explicit subject that falls
+    // outside this legacy taxonomy. The general evidence gate handles it.
+    const desired=medicalScene?['medicalTechnology']:placementDomains.length?placementDomains:primaryDomains.length?primaryDomains:target.primaryTopic?[]:queryDomains;
     const text=candidateImageText(record),actual=imageTopicDomains(text);
     const localWords=local.toLowerCase().match(/[\p{L}]{4,}/gu)||[];
     const namedSubjectMatch=!localDomains.length&&!primaryDomains.length&&localWords.length>0&&localWords.every(word=>text.toLowerCase().includes(word));
@@ -56,9 +61,8 @@ export function evaluateImageRelevance(record,target={}){
     const sceneMatch=!requestedScenes.length||requestedScenes.some(([,pattern])=>pattern.test(text));
     const exclusions=(Array.isArray(target.exclusions)?target.exclusions:[]).filter(value=>typeof value==='string'&&value.length>=3);
     const excluded=exclusions.some(value=>text.toLowerCase().includes(value.toLowerCase()));
-    const words=[...new Set((query||local||overall).toLowerCase().match(/[\p{L}]{4,}/gu)||[])].filter(word=>!['image','images','photo','photos','photograph','photography','editorial','beautiful','premium','modern','professional','illustrative','concept','with','from','this','that'].includes(word));
-    const shared=words.filter(word=>text.toLowerCase().includes(word)).length;
-    const lexicalMatch=desired.length>0||shared>=Math.min(2,words.length)&&words.length>0&&shared/words.length>=.3;
+    const evidence=metadataSubjectEvidence(text,target);
+    const lexicalMatch=declaredDomains.length>0||!target.primaryTopic&&primaryDomains.length>0||evidence.supported;
     return {accepted:domainMatch&&sceneMatch&&lexicalMatch&&!excluded&&!campusOnly,applicable:true,
         desiredDomains:desired,candidateDomains:actual,reason:excluded?'EXCLUDED_SUBJECT':campusOnly?'INSTITUTION_EXTERIOR_NOT_TECHNOLOGY':!domainMatch||!lexicalMatch?'TOPIC_MISMATCH':!sceneMatch?'SECTION_MISMATCH':'METADATA_MATCH',
         method:'independent-metadata',limits:'Metadata relevance is not a visual or factual certification.'};
@@ -80,8 +84,9 @@ export function relevantSearchQuery(target={}){
 }
 const safe=value=>String(value||'').replace(/https?:\/\/\S+/gi,'[URL]').replace(/(?:api[_-]?key|password|token)\s*[:=]\s*\S+/gi,'[REDACTED]').replace(/[\r\n]/g,' ').slice(0,240);
 export function relevanceDiagnostic(record,target,review,logger=entry=>console.info('[IMAGE_RELEVANCE]',JSON.stringify(entry))){
-    const entry={topic:safe(target.topic||target.subject),purpose:safe(target.purpose),query:safe(target.query||target.searchQuery),role:target.role||'slide',slideNumber:target.slideNumber,
-        candidate:{source:safe(record.source),description:safe(candidateImageText(record)),creator:safe(record.creator)},
+    const digest=value=>createHash('sha256').update(String(value||'')).digest('hex').slice(0,16);
+    const entry={contextHash:digest(JSON.stringify([target.topic||target.subject,target.purpose,target.query||target.searchQuery,target.sectionTopic||target.slideTitle])),role:target.role||'slide',slideNumber:target.slideNumber,
+        candidate:{source:safe(record.source),metadataHash:digest(candidateImageText(record))},
         accepted:review.accepted,reason:review.reason||'RELEVANCE_REJECTED',method:review.method};
     logger(entry);return entry;
 }

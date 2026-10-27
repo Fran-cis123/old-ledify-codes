@@ -6,7 +6,7 @@ import { validateStaticWebsite } from './webpageStaticValidator.mjs';
 import {generateIndependent} from './ai/concurrency.mjs';
 import {storageRoot} from './storageRoot.mjs';
 import {validateImageBytes,imageDiagnostic} from './visual/imageAssetService.mjs';
-import {measureStage} from './performance.mjs';
+import {measureStage,performanceRequestId} from './performance.mjs';
 
 export const WEBPAGE_ROOT = path.resolve(process.env.LEDIFY_WEBPAGE_ROOT || storageRoot('webpages'));
 export const tokenHash = token => createHash('sha256').update(token).digest('hex');
@@ -15,6 +15,7 @@ export async function webpageArtifactService(files, options = {}) {
     const imageHashes=await measureStage('website-package-images',async()=>{
         const hashes={};
         for(const [name,buffer] of Object.entries(files).filter(([name])=>/\.(?:png|jpe?g|webp)$/.test(name))){await validateImageBytes(buffer);hashes[name]=createHash('sha256').update(buffer).digest('hex');}
+        if(options.imageBindings)for(const [name,sha256] of Object.entries(hashes))if(options.imageBindings[name]?.sha256!==sha256)throw Object.assign(new Error('Artifact image association checksum mismatch'),{code:'IMAGE_BINDING_MISMATCH',stage:'webpage-packaging'});
         return hashes;
     });
     const root = path.resolve(options.root || WEBPAGE_ROOT);
@@ -52,7 +53,7 @@ export async function webpageArtifactService(files, options = {}) {
             stages.zip = 'failed';
             warnings.push({ code: 'WEBPAGE_ZIP_FAILED', message: 'The preview is available, but ZIP packaging failed.' });
         }
-        await fs.writeFile(path.join(directory, 'metadata.json'), JSON.stringify({ id, tokenHash: tokenHash(token), allowedFiles: validation.files,imageHashes,
+        await fs.writeFile(path.join(directory, 'metadata.json'), JSON.stringify({ id,requestId:performanceRequestId(), tokenHash: tokenHash(token), allowedFiles: validation.files,imageHashes,imageBindings:options.imageBindings||{},
             downloadable: stages.zip === 'completed', createdAt: new Date().toISOString() }), { flag: 'wx' });
         imageDiagnostic({generationType:'webpage',provider:'artifact-store',status:stages.zip==='completed'?'verified':'incomplete',succeeded:Object.keys(imageHashes).length,storage:'saved',validation:stages.zip==='completed'?'passed':'export-failed'});
         return { id, status: stages.zip === 'completed' ? 'completed' : 'partial_success', stages, warnings,

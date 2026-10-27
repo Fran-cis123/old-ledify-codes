@@ -1,7 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
+import {performanceRequestId} from '../performance.mjs';
+import {bindImageAsset} from '../visual/assetBinding.mjs';
 import {resolveWebpageAssets} from '../webpageAssetService.mjs';
 import {optimizeWebsiteImage} from './imageOptimization.mjs';
 import {downloadWebsiteImage,websiteImageProviders} from './imageProviders.mjs';
@@ -20,7 +22,7 @@ const bundledCatalog=fileURLToPath(new URL('../../assets/webpage/curated/catalog
 const safeCreditUrl=value=>{try{const url=new URL(value);url.search='';url.hash='';return url.protocol==='https:'&&!url.username&&!url.password?url.href:'';}catch{return '';}};
 
 export async function acquireWebsiteImages(page,context={},options={}){
-    const warnings=[],assets={},selected=[],diagnostics=[],disabled=new Set();
+    const warnings=[],assets={},selected=[],diagnostics=[],disabled=new Set(),requestId=performanceRequestId()||randomUUID();
     const requests=planWebsiteImages(page,context);
     if(wantsTextOnly(context))return {page:{...page,sections:page.sections.map(section=>({...section,image:undefined,items:section.items.map(item=>({...item,image:undefined}))})),visualAssets:{credits:[]},imageValidation:{status:'passed',requiredMissing:[]},imageStrategy:{plan:[],planned:0,resolved:0,unmet:0,generatedCalls:0,diagnostics:[]}},assets,warnings};
     const logImage=entry=>{diagnostics.push(entry);imageDiagnostic({generationType:'webpage',...entry},options.logger);};
@@ -52,7 +54,7 @@ export async function acquireWebsiteImages(page,context={},options={}){
         });
         const largest=variants.at(-1);
         const crop=['left','right','center','top','contain'].includes(page.websiteBrief?.photography.crop)?page.websiteBrief.photography.crop:'center';
-        selected.push({...record,buffer:undefined,...largest,assetId:optimized.id,review,variants,crop:record.role==='logo'?'contain':crop,sourceBytes:buffer.length,cacheHit:optimized.cacheHit,sourceUrl:safeCreditUrl(record.sourceUrl),licenseUrl:safeCreditUrl(record.licenseUrl),creatorUrl:safeCreditUrl(record.creatorUrl),caption:record.illustrative===false?(record.caption||''):(record.caption||'Illustrative stock image; not a photograph of this organization.')});
+        selected.push(bindImageAsset({...record,buffer:undefined,...largest,assetId:optimized.id,review,variants,crop:record.role==='logo'?'contain':crop,sourceBytes:buffer.length,cacheHit:optimized.cacheHit,sourceUrl:safeCreditUrl(record.sourceUrl),licenseUrl:safeCreditUrl(record.licenseUrl),creatorUrl:safeCreditUrl(record.creatorUrl),caption:record.illustrative===false?(record.caption||''):(record.caption||'Illustrative stock image; not a photograph of this organization.')},target,requestId,optimized.variants.at(-1).buffer));
         logImage({provider:record.source,target:record.role,status:'asset-verified',storage:'bundled',validation:'passed',cacheHit:optimized.cacheHit});
         return true;
     };
@@ -142,5 +144,5 @@ export async function acquireWebsiteImages(page,context={},options={}){
     const requiredMissing=unmet.filter(target=>target.required).map(({role,sectionId,itemTitle})=>({role,sectionId,itemTitle}));
     logImage({provider:'pipeline',status:requiredMissing.length?'incomplete':'verified',requested:requests.length,succeeded:requests.length-unmet.length,failed:unmet.length,requiredMissing:requiredMissing.length,retryCount:diagnostics.filter(d=>d.attempt>1).length,elapsedMs:Date.now()-started,storage:'bundled',validation:requiredMissing.length?'incomplete':'passed'});
     if(unmet.length)warnings.push({code:'WEBPAGE_IMAGE_PLAN_INCOMPLETE',message:'Some planned images could not be acquired within the configured source/budget limits.',targets:unmet.map(({role,sectionId,itemTitle})=>({role,sectionId,itemTitle}))});
-    return {page:{...page,sections:sections.filter(section=>section.type!=='gallery'||section.items.length),imageValidation:{status:requiredMissing.length?'incomplete':'passed',requiredMissing},imageStrategy:{plan:requests,planned:requests.length,resolved:selected.filter(a=>a.role!=='logo').length,unmet:unmet.length,generatedCalls,maxAssets:policy.maxAssets,diagnostics},visualAssets:{hero,logo:selected.find(asset=>asset.role==='logo'),credits:selected.map(({buffer,variants,...asset})=>asset)}},assets,warnings};
+    return {page:{...page,sections:sections.filter(section=>section.type!=='gallery'||section.items.length),imageValidation:{status:requiredMissing.length?'incomplete':'passed',requiredMissing},imageStrategy:{plan:requests,planned:requests.length,resolved:selected.filter(a=>a.role!=='logo').length,unmet:unmet.length,generatedCalls,maxAssets:policy.maxAssets,diagnostics},visualAssets:{requestId,hero,logo:selected.find(asset=>asset.role==='logo'),credits:selected.map(({buffer,variants,...asset})=>asset)}},assets,warnings};
 }

@@ -31,9 +31,8 @@ export function createGenerationRouter(options = {}) {
         try{res.status(202).json({data:await jobs().retry(req.params.id,req.params.token)});}
         catch(error){res.status(error.status||500).json({message:error.status===404?'Job not found':error.message});}
     });
-    // Recover accepted unfinished work when the API starts, without waiting for
-    // a frontend poll to trigger recovery. One worker per persisted queue.
-    if(!options.generator)jobs().initialize().catch(error=>console.error('[JOBS]',error.code||'JOB_STORAGE_UNAVAILABLE'));
+    // The startup lifecycle recovers jobs after database readiness. Constructing
+    // or importing a router must not start generation as a module side effect.
 
     router.post('/generate',upload.single('file'),handlers.userCombined);
 

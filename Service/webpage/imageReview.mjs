@@ -24,7 +24,7 @@ const concepts={
 };
 const groups=text=>concepts.space.test(text)?['space']:Object.entries(concepts).filter(([,pattern])=>pattern.test(text)).map(([name])=>name);
 export function centralImageSubject(page){
-    const central=[page.inferredContext?.topic,page.websiteBrief?.project.purpose,page.title,page.hero.headline].filter(Boolean).join('. ');
+    const central=[page.inferredContext?.topic,page.websiteBrief?.project.purpose,page.websiteBrief?.project.description,page.title,page.hero.headline,page.hero.subheadline].filter(Boolean).join('. ');
     let preferred=groups(central);
     const specific=imageTopicDomains([page.inferredContext?.topic,page.title].join(' '));
     if(specific.length)return {description:central,concepts:specific};
@@ -35,6 +35,9 @@ export function centralImageSubject(page){
     return {description:central,concepts:preferred};
 }
 export function reviewImageCandidate(record,target,{width,height}={}){
+    // Generation uses the full requested scene/purpose as intent evidence;
+    // it is not independent visual verification of the returned pixels.
+    if(record.source==='Google Gemini')record={...record,subject:[target.query,target.subjectContext||target.topic].filter(Boolean).join('. ')};
     if(requiresConceptImage(target))target={...target,topic:target.query,centralConcepts:undefined};
     const provenance=Boolean(record.creator?.trim()&&record.license?.trim());
     const stock=/Wikimedia|Pexels|curated catalog/i.test(record.source||'')||record.sourceType==='licensed-stock';
@@ -48,7 +51,7 @@ export function reviewImageCandidate(record,target,{width,height}={}){
     const candidateText=[record.subject,record.alt,...(record.keywords||[])].join(' ').toLowerCase();
     const shared=queryWords.filter(word=>new RegExp('\\b'+word+'\\b').test(candidateText)).length;
     const relevance=evaluateImageRelevance(record,target);
-    const semanticScore=relevance.desiredDomains.length?(relevance.accepted?1:0):desired.length?(compatible&&!['SECTION_MISMATCH','EXCLUDED_SUBJECT'].includes(relevance.reason)?1:0):shared>=2&&shared/Math.max(queryWords.length,1)>=.45&&relevance.accepted?1:0;
+    const semanticScore=!relevance.accepted?0:relevance.desiredDomains.length?1:desired.length?(compatible?1:0):shared>=2&&shared/Math.max(queryWords.length,1)>=.45?1:0;
     const minimum=target.role==='hero'?800:400;
     const resolutionScore=width&&height?Math.min(1,Math.min(width,height*1.6)/minimum):1;
     const aspect=width&&height?width/height:1.5;

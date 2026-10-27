@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { renderDocumentDocx, validateDocxArtifact, documentStyle } from '../../renderer/document/docxRenderer.mjs';
 import { renderDocumentPreview } from '../../renderer/document/documentPreview.mjs';
-import {measureStage} from '../performance.mjs';
+import {measureStage,performanceRequestId} from '../performance.mjs';
 import {storageRoot} from '../storageRoot.mjs';
 import {ensureDocumentPdf} from './documentPdfService.mjs';
 export const DOCUMENT_ROOT=path.resolve(process.env.LEDIFY_DOCUMENT_ROOT||storageRoot('documents'));
@@ -20,7 +20,7 @@ export async function documentArtifactService(document,context={},options={}) {
         await fs.mkdir(directory,{recursive:true});
         await fs.writeFile(path.join(directory,'document.docx'),buffer,{flag:'wx'});
         await fs.writeFile(path.join(directory,'preview.html'),preview,{flag:'wx'});
-        await fs.writeFile(path.join(directory,'metadata.json'),JSON.stringify({id,tokenHash:documentTokenHash(token),title:document.title,createdAt:new Date().toISOString(),format:'docx'}),{flag:'wx'});
+        await fs.writeFile(path.join(directory,'metadata.json'),JSON.stringify({id,requestId:performanceRequestId(),tokenHash:documentTokenHash(token),title:document.title,createdAt:new Date().toISOString(),format:'docx'}),{flag:'wx'});
         const format=context.exportFormat||'docx',downloads={docx:`/api/documents/${id}/${token}/download`,pdf:`/api/documents/${id}/${token}/pdf`};
         let pdf,pdfFailed=false;
         if(format==='pdf')try{pdf=await measureStage('document-pdf',()=>ensureDocumentPdf(directory,options.pdf));}catch{pdfFailed=true;}

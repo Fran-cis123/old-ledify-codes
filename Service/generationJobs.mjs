@@ -4,13 +4,15 @@ import {randomBytes,randomUUID,createHash,timingSafeEqual} from 'node:crypto';
 import {profileGeneration} from './performance.mjs';
 import {publicGenerationResult} from './publicGenerationResult.mjs';
 import {storageRoot} from './storageRoot.mjs';
+import {withGenerationCapacity,generationConcurrencySettings} from './generationCapacity.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const queues=new Map();
-export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT||storageRoot('jobs'),maxPending=8,onError,logger=entry=>console.info('[GENERATION_JOB]',JSON.stringify(entry))}={}){
+export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT||storageRoot('jobs'),maxPending=generationConcurrencySettings().maxWaiting,workerConcurrency=generationConcurrencySettings().concurrency,onError,onPerformanceReport,logger=entry=>console.info('[GENERATION_JOB]',JSON.stringify(entry))}={}){
     root=path.resolve(root);
     if(queues.has(root))return queues.get(root);
-    let ready,active=false,admissions=0;const pending=[],retrying=new Set();
+    if(!Number.isInteger(workerConcurrency)||workerConcurrency<1||workerConcurrency>4)throw new Error('Job concurrency must be between one and four');
+    let ready,active=0,admissions=0;const pending=[],retrying=new Set();
     const filename=(id,name)=>path.join(root,id,name);
     const validId=id=>/^[a-f0-9-]{36}$/.test(id);
     const log=entry=>{try{logger(entry);}catch{}};
@@ -47,23 +49,27 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
         })();
         return ready;
     }
-    async function pump(){
-        if(active)return;active=true;
-        try{while(pending.length){
-            const id=pending.shift();let job,payload,writes=Promise.resolve(),progressPending=false,executionStarted;
+    function pump(){
+        while(active<workerConcurrency&&pending.length){
+            const id=pending.shift();active++;
+            runJob(id).catch(error=>{try{onError?.(error);}catch{}}).finally(()=>{active--;setImmediate(pump);});
+        }
+    }
+    async function runJob(id){
+            let job,payload,writes=Promise.resolve(),progressPending=false,executionStarted;
             try{
                 job=await load(id);job.status='processing';job.runs=(job.runs||0)+1;
                 executionStarted=performance.now();job.startedAt=new Date().toISOString();
                 const queuedAt=Date.parse(job.queuedAt||job.createdAt);
                 job.timings={queueWaitMs:Number.isFinite(queuedAt)?Math.max(0,Date.now()-queuedAt):0};
-                log({requestId:id,status:'processing',attempt:job.runs,queueWaitMs:job.timings.queueWaitMs});
+                log({requestId:id,status:'processing',attempt:job.runs,queueWaitMs:job.timings.queueWaitMs,activeJobs:active,queuedJobs:pending.length});
                 await atomic(filename(id,'status.json'),job);
                 payload=JSON.parse(await fs.readFile(filename(id,'input.json'),'utf8'),(key,value)=>value?.type==='Buffer'&&Array.isArray(value.data)&&value.data.length<=12*1024*1024?Buffer.from(value.data):value);
                 let completedContent;try{completedContent=JSON.parse(await fs.readFile(filename(id,'content.json'),'utf8'));}catch{}
                 let plan,partial;try{plan=JSON.parse(await fs.readFile(filename(id,'plan.json'),'utf8'));}catch{}
                 try{partial=JSON.parse(await fs.readFile(filename(id,'partial.json'),'utf8'));}catch{}
                 const update=change=>{Object.assign(job,change,{updatedAt:new Date().toISOString()});writes=writes.then(()=>atomic(filename(id,'status.json'),job));return writes;};
-                const result=await profileGeneration(()=>generator(payload.kind,payload.input,payload.outputType,payload.context,{
+                const result=await profileGeneration(()=>withGenerationCapacity(()=>generator(payload.kind,payload.input,payload.outputType,payload.context,{
                     ...payload.options,completedContent,
                     ai:{...payload.options?.ai,
                         ...(payload.outputType==='presentation'?{initialPresentation:partial}:{initialPlan:plan,...(payload.outputType==='document'?{initialSections:partial?.sections}:{})}),
@@ -72,7 +78,7 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
                         onCheckpoint:partial=>atomic(filename(id,'partial.json'),partial)},
                     onContentReady:content=>atomic(filename(id,'content.json'),content),
                     preview:{onArtifact:artifact=>update({artifacts:{...job.artifacts,[artifact.stage]:artifact}})}
-                }),{forceNew:true,requestId:id,onProgress:event=>{
+                })),{forceNew:true,requestId:id,onReport:onPerformanceReport,onProgress:event=>{
                     const key=[event.stage,event.slideNumber||event.sectionId||''].join(':');
                     job.progress[key]={...event,updatedAt:new Date().toISOString()};
                     if(!progressPending){progressPending=true;update({progress:job.progress}).finally(()=>{progressPending=false;}).catch(()=>{});}
@@ -94,7 +100,6 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
                 if(job){job.status='failed';job.completedAt=new Date().toISOString();job.timings={...job.timings,executionMs:executionStarted===undefined?0:Math.round(performance.now()-executionStarted)};job.timings.totalMs=(job.timings.queueWaitMs||0)+job.timings.executionMs;job.error={errorCode:error.code||'GENERATION_FAILED',stage:error.stage,field:error.field,message:'Generation could not complete. See errorCode and stage.'};await atomic(filename(id,'status.json'),job).catch(()=>{});log({requestId:id,status:'failed',errorCode:job.error.errorCode,...job.timings});}
                 if(payload)await model?.findByIdAndUpdate?.(payload.recordId,{$set:{status:'failed'}}).catch(()=>{});
             }
-        }}finally{active=false;}
     }
     const api={
         async enqueue(payload){
@@ -107,7 +112,7 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
             // Publish status last: a job is never accepted without its durable input.
             await atomic(filename(id,'input.json'),payload);await atomic(filename(id,'status.json'),job);
             pending.push(id);setImmediate(pump);
-            log({requestId:id,status:'queued',outputType:payload.outputType,queueDepth:pending.length,workerBusy:active});
+            log({requestId:id,status:'queued',outputType:payload.outputType,queueDepth:pending.length,workerBusy:active>0,activeJobs:active});
             return {jobId:id,status:'queued',statusUrl:`/api/generation-jobs/${id}/${token}`};
             }finally{admissions--;}
         },
@@ -121,12 +126,18 @@ export function generationJobs({generator,model,root=process.env.LEDIFY_JOB_ROOT
             retrying.add(id);try{
             const safe=await api.read(id,token);
             if(safe.status!=='failed')throw Object.assign(new Error('Only failed jobs can be retried'),{status:409});
-            if(pending.length>=maxPending)throw Object.assign(new Error('Generation queue is full'),{status:503});
+            if(pending.length+admissions>=maxPending)throw Object.assign(new Error('Generation queue is full'),{status:503});
+            // Retry publication includes filesystem awaits just like enqueue.
+            // Reserve its backlog position before another request can pass.
+            admissions++;
+            try{
             const job=await load(id);job.status='queued';job.runs=0;job.queuedAt=new Date().toISOString();delete job.error;delete job.timings;delete job.startedAt;delete job.completedAt;await atomic(filename(id,'status.json'),job);
             pending.push(id);setImmediate(pump);return {jobId:id,status:'queued'};
+            }finally{admissions--;}
             }finally{retrying.delete(id);}
         },
-        initialize:init
+        initialize:init,
+        capacity:()=>({active,queued:pending.length,admissions,workerConcurrency,maxPending})
     };
     queues.set(root,api);return api;
 }

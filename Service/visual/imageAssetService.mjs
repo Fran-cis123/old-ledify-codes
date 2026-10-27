@@ -6,6 +6,15 @@ import {performanceReport} from '../performance.mjs';
 import {storageRoot} from '../storageRoot.mjs';
 
 const pools=new Map(),saving=new Map(),shared=new Map();
+// Shared provider work deduplicates I/O, never caller-owned mutable results.
+export function cloneSharedAsset(value,seen=new Map()){
+    if(Buffer.isBuffer(value))return Buffer.from(value);
+    if(!value||typeof value!=='object')return value;
+    if(seen.has(value))return seen.get(value);
+    const result=Array.isArray(value)?[]:{};seen.set(value,result);
+    for(const [key,child] of Object.entries(value))result[key]=cloneSharedAsset(child,seen);
+    return result;
+}
 async function replaceFile(temp,file){for(let attempt=0;;attempt++){try{await fs.rename(temp,file);return;}catch(error){if(attempt>=10||!['EPERM','EACCES','EBUSY'].includes(error.code))throw error;await new Promise(r=>setTimeout(r,Math.min(250,10*2**attempt)));}}}
 export const imageError=(code,message)=>Object.assign(new Error(message),{code,stage:'image-generation'});
 export function shareImageWork(key,invoke,{signal}={}) {
@@ -22,7 +31,7 @@ export function shareImageWork(key,invoke,{signal}={}) {
         const release=()=>{if(released)return;released=true;signal?.removeEventListener('abort',abort);if(--entry.consumers===0&&!entry.settled)entry.controller.abort();};
         const abort=()=>{release();reject(imageError('IMAGE_CANCELLED','Image request was cancelled'));};
         signal?.addEventListener('abort',abort,{once:true});
-        entry.promise.then(value=>{if(!released){release();resolve(value);}},error=>{if(!released){release();reject(error);}});
+        entry.promise.then(value=>{if(!released){release();try{resolve(cloneSharedAsset(value));}catch(error){reject(error);}}},error=>{if(!released){release();reject(error);}});
     });
 }
 export function classifyImageError(error={}) {

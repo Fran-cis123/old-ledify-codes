@@ -1,4 +1,5 @@
 import pptxgen from "pptxgenjs";
+import {validatePresentationBindings} from '../../Service/visual/assetBinding.mjs';
 
 
 import {
@@ -42,6 +43,7 @@ import {
 export const pptxRenderer = async (
     presentation
 ) => {
+    validatePresentationBindings(presentation);
 
     // =====================================================
     // 1. VALIDATE PRESENTATION

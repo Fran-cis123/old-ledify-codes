@@ -213,7 +213,7 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
             }
         }
     }
-    const result={...presentation,slides,visualTheme:{family:theme.family,style:theme.style},warnings:[...(presentation.warnings||[]),...warnings]};
+    const result={...presentation,imageRequestId:session.requestId,slides,visualTheme:{family:theme.family,style:theme.style},warnings:[...(presentation.warnings||[]),...warnings]};
     result.visualQuality=imageCoverage(result,session.diagnostics,session.budget.report());
     if(strict&&!result.visualQuality.requiredComplete)throw Object.assign(new Error('Required pictures did not fit alongside the approved slide content. No image-free presentation was published. Shorten the content or retry generation so it can be replanned.'),{code:'PRESENTATION_IMAGE_LAYOUT_FAILED',stage:'visual-layout-validation',missingSlides:result.visualQuality.missingAssets});
     result.imageValidation={status:result.visualQuality.requiredComplete?'passed':'incomplete',requiredMissing:result.visualQuality.missingAssets};

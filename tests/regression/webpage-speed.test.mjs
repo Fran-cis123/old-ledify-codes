@@ -63,7 +63,7 @@ test('two stock requests overlap without increasing the paid generation concurre
 test('durable jobs separately report queue wait and execution with one correlated performance ID',async t=>{
  const root=await temporary(t),logs=[];let release,started=false;const gate=new Promise(resolve=>{release=resolve;});t.after(()=>release());
  const requestIds=[];
- const jobs=generationJobs({root,logger:entry=>logs.push(entry),generator:async(kind,input)=>{requestIds.push(performanceReport().requestId);if(input==='first'){started=true;await gate;}return {status:'completed'};}});
+ const jobs=generationJobs({root,workerConcurrency:1,logger:entry=>logs.push(entry),generator:async(kind,input)=>{requestIds.push(performanceReport().requestId);if(input==='first'){started=true;await gate;}return {status:'completed'};}});
  const first=await jobs.enqueue({kind:'prompt',input:'first',outputType:'webpage'});await until(()=>started);
  const second=await jobs.enqueue({kind:'prompt',input:'second',outputType:'webpage'});await sleep(25);release();
  const result=await until(async()=>{const job=await jobs.read(second.jobId,second.statusUrl.split('/').at(-1));return job.status==='completed'&&job;});

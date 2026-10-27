@@ -7,7 +7,7 @@ import { validateRenderedPptx } from './renderedOutputValidation.mjs';
 import { validatePreviewImages } from './previewValidation.mjs';
 import { presentationRenderQueue } from './renderQueue.mjs';
 import {validatePhotoPreviews} from './photoQuality.mjs';
-import {measureStage} from '../../Service/performance.mjs';
+import {measureStage,performanceRequestId} from '../../Service/performance.mjs';
 
 import {
     writePresentationFile
@@ -116,6 +116,7 @@ const renderPreview = async (
         previewDirectory,
         "presentation.pptx"
     );
+    await fs.writeFile(path.join(previewDirectory,'image-associations.json'),JSON.stringify({requestId:presentation.imageRequestId||performanceRequestId(),slides:presentation.slides.map(slide=>({slideNumber:slide.slideNumber,images:(slide.photoAssets||[slide.photoAsset].filter(Boolean)).map(asset=>asset.binding).filter(Boolean)}))}),{flag:'wx'});
 
     const pdfPath = path.join(
         previewDirectory,

@@ -1,6 +1,13 @@
 import {imageContextExclusions} from './imageRelevance.mjs';
 export function wantsTextOnly(context={}){
-    return /\b(?:text[ -]only|(?:no|without|avoid)\s+(?:any\s+)?(?:photos?|photographs?|photography|images?|pictures?))\b/i.test([context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].join(' '));
+    const clauses=[context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].filter(Boolean).flatMap(value=>String(value).split(/[.!?;\n]+/));
+    return clauses.some(clause=>{
+        if(!/\b(?:text[ -]only|(?:no|without|avoid)\s+(?:any\s+)?(?:photos?|photographs?|photography|images?|pictures?))\b/i.test(clause))return false;
+        // A local exclusion must not erase imagery requested elsewhere. Explicit
+        // numbered exclusions remain enforced by the per-slide layout policy.
+        const scoped=/\b(?:slides?\s*\d|(?:first|second|third|last|remaining|other)\s+(?:slides?|sections?)|rest|except|hero|cover|footer)\b/i.test(clause)||/\bsection\b/i.test(clause)&&!/\b(?:all|every|entire)\b/i.test(clause);
+        return !scoped;
+    });
 }
 export function requiresAuthenticPhotography(context={}){
     const text=[context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].join(' ');
