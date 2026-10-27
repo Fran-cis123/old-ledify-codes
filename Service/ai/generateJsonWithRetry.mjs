@@ -77,6 +77,7 @@ export async function generateJsonWithRetry({ client, request, schema, outputTyp
                 // Semantic validators often throw ordinary Errors. Preserve their
                 // actionable requirement in the private retry prompt, never logs.
                 validationRule:error.validationRule||'CONTENT_CONTRACT',
+                validationErrors:Array.isArray(error.validationErrors)?error.validationErrors.slice(0,16):undefined,
                 repairHint: String(error.repairHint || error.message || 'Correct the invalid content.').slice(0, 600) }); }
             validationMs=performance.now()-validationStarted;
             logger({ requestId, stage, slideNumber, sectionId, attempt, status: "completed", elapsedMs: performance.now() - started, queueWaitMs,providerMs,validationMs, model: request.model,
@@ -86,9 +87,14 @@ export async function generateJsonWithRetry({ client, request, schema, outputTyp
         } catch (error) {
             const rawStatus = Number(error.status || error.statusCode || error.error?.code);
             const status=Number.isInteger(rawStatus)&&rawStatus>=400&&rawStatus<=599?rawStatus:undefined;
-            const transient = [408, 429, 500, 502, 503, 504].includes(status) || (!status && isTransientProviderConnection(error));
+            const hardQuota=status===402||status===429&&/billing (?:is )?(?:disabled|not enabled)|insufficient (?:credits|balance)|payment required|daily quota (?:exceeded|exhausted)|limit\s*[:=]\s*0\b/i.test(String(error.message||''));
+            const transient = !hardQuota&&([408, 429, 500, 502, 503, 504].includes(status) || (!status && isTransientProviderConnection(error)));
             lastError = error instanceof AiGenerationError ? error : new AiGenerationError(error.code==='AI_PROVIDER_BUSY'?'AI_PROVIDER_BUSY':transient ? "AI_PROVIDER_TRANSIENT" : "AI_PROVIDER_ERROR", "AI provider request failed", { providerStatus: status,providerReason:providerReason(error,status) });
             if(recoverable.has(lastError.code)){
+                for(const issue of lastError.validationErrors||[]){
+                    if(typeof issue.field!=='string'||typeof issue.repairHint!=='string')continue;
+                    const requirement=`${repairFieldHint(issue.field)}: ${issue.repairHint.slice(0,600)}`;requirements.set(requirement,requirement);
+                }
                 const hint=`${repairFieldHint(lastError.field)}: ${lastError.repairHint||lastError.message}${lastError.maxCharacters?` Shorten or restructure this field to at most ${lastError.maxCharacters} characters without dropping essential facts.`:''}`;
                 requirements.set(hint,hint);
                 // A successful, syntactically complete response can be repaired in

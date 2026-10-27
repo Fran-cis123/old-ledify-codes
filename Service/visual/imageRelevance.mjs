@@ -1,5 +1,6 @@
 // A matching request is not evidence about the returned image's contents.
 const domains={
+    automotive:/\b(?:automotive|automobiles?|cars?|supercars?|hypercars?|vehicles?|sedans?|SUVs?|motorsport|powertrains?|cockpits?|headlamps?|headlights?|alloy wheels?)\b/i,
     space:/\b(?:spacecraft|astronauts?|rockets?|lunar|martian|mars|orbits?|orbital|planetary|planets?|exoplanets?|galax(?:y|ies)|spaceflight|spacewalks?|space exploration|space telescopes?|International Space Station|ISS|atmospheric limb|Earth(?:['’]s)? limb|deep[ -]space)\b/i,
     computing:/\b(?:artificial intelligence|machine learning|neural networks?|robot(?:s|ic|ics)?|comput(?:er|ing|ation)|servers?|data cent(?:er|re)s?|processors?|microchips?|AI)\b/i,
     architecture:/\b(?:real estate|propert(?:y|ies)|architectur\w*|mansions?|villas?|penthouses?|residential|interiors?|housing|gated estates?|house interior|wooden house|modern house|luxury homes?)\b/i,
@@ -41,7 +42,9 @@ export function evaluateImageRelevance(record,target={}){
     const query=target.query||target.searchQuery||'';
     const localDomains=imageTopicDomains(local),primaryDomains=imageTopicDomains(overall),queryDomains=imageTopicDomains(query);
     const medicalScene=localDomains.length===1&&localDomains[0]==='computing'&&queryDomains.includes('medicalTechnology');
-    const desired=medicalScene?['medicalTechnology']:localDomains.length?localDomains:primaryDomains.length?primaryDomains:queryDomains;
+    const metaphoricalArchitecture=localDomains.includes('architecture')&&primaryDomains.length&&!primaryDomains.includes('architecture')&&!/\b(?:houses?|homes?|buildings?|skyscrapers?|mansions?|villas?|penthouses?|residential|real estate)\b/i.test(local+' '+query);
+    const placementDomains=metaphoricalArchitecture?localDomains.filter(name=>name!=='architecture'):localDomains;
+    const desired=medicalScene?['medicalTechnology']:placementDomains.length?placementDomains:primaryDomains.length?primaryDomains:queryDomains;
     const text=candidateImageText(record),actual=imageTopicDomains(text);
     const localWords=local.toLowerCase().match(/[\p{L}]{4,}/gu)||[];
     const namedSubjectMatch=!localDomains.length&&!primaryDomains.length&&localWords.length>0&&localWords.every(word=>text.toLowerCase().includes(word));
@@ -61,6 +64,7 @@ export function evaluateImageRelevance(record,target={}){
         method:'independent-metadata',limits:'Metadata relevance is not a visual or factual certification.'};
 }
 export function relevantSearchQuery(target={}){
+    if(target.identityLabel)return (String(target.identityLabel).replace(/[^\p{L}\p{N}\s-]/gu,' ').trim()+(imageTopicDomains(target.topic).includes('automotive')?' car exterior':'')).slice(0,160);
     const local=target.sectionTopic||target.slideTitle||'';
     const topic=target.topic||target.subject||target.query||target.searchQuery||'';
     const names=imageTopicDomains(topic+' '+local);
@@ -71,7 +75,7 @@ export function relevantSearchQuery(target={}){
         if(/\bhydro(?:power|electric)?\b/i.test(direction))return 'hydroelectric dam power station';
         if(/\bgeothermal\b/i.test(direction))return 'geothermal power station';
     }
-    const anchors={computing:'artificial intelligence computer',architecture:'residential architecture',marine:'marine wildlife',agriculture:'agriculture farming',renewable:'renewable energy',medicalTechnology:'medical technology',finance:'financial planning'};
+    const anchors={automotive:'sports car supercar',computing:'artificial intelligence computer',architecture:'residential architecture',marine:'marine wildlife',agriculture:'agriculture farming',renewable:'renewable energy',medicalTechnology:'medical technology',finance:'financial planning'};
     return [local,anchors[names[0]]||topic].filter(Boolean).join(' ').replace(/[^\p{L}\p{N}\s-]/gu,' ').replace(/\s+/g,' ').trim().slice(0,160);
 }
 const safe=value=>String(value||'').replace(/https?:\/\/\S+/gi,'[URL]').replace(/(?:api[_-]?key|password|token)\s*[:=]\s*\S+/gi,'[REDACTED]').replace(/[\r\n]/g,' ').slice(0,240);

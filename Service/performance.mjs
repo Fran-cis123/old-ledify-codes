@@ -3,6 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {monitorEventLoopDelay,performance as nodePerformance} from 'node:perf_hooks';
 const precise=value=>Math.round(value*1000)/1000;
 const storage=new AsyncLocalStorage();
+export const performanceRequestId=()=>storage.getStore()?.id;
 export function performanceReport(){
     const state=storage.getStore();if(!state)return undefined;
     const cpu=process.cpuUsage(state.cpu),loop=nodePerformance.eventLoopUtilization(state.loop);

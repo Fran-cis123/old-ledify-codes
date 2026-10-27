@@ -28,7 +28,8 @@ export function shareImageWork(key,invoke,{signal}={}) {
 export function classifyImageError(error={}) {
     const status=Number(error.providerStatus||error.status||error.statusCode||error.error?.code),code=String(error.code||''),message=String(error.message||'');
     let reasonCode=code;
-    if(error.imageOperation==='download'&&[401,403,404,410].includes(status))reasonCode='IMAGE_DOWNLOAD_UNAVAILABLE';
+    if(status===402||status===429&&/billing (?:is )?(?:disabled|not enabled)|insufficient (?:credits|balance)|payment required|daily quota (?:exceeded|exhausted)|limit\s*[:=]\s*0\b/i.test(message))reasonCode='IMAGE_BILLING_UNAVAILABLE';
+    else if(error.imageOperation==='download'&&[401,403,404,410].includes(status))reasonCode='IMAGE_DOWNLOAD_UNAVAILABLE';
     else if(status===401||/API_KEY_INVALID|API key not valid|API key expired/i.test(message))reasonCode='IMAGE_INVALID_CREDENTIALS';
     else if(status===403)reasonCode='IMAGE_ACCESS_DENIED';
     else if(status===404)reasonCode='IMAGE_MODEL_UNAVAILABLE';

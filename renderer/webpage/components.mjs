@@ -11,7 +11,7 @@ export function navigation(page) {
 }
 export function hero(page) {
     const asset=page.visualAssets?.hero;
-    const longHeadline=page.hero.headline.split(/\s+/).some(word=>word.length>12)?' headline-long':'';
+    const longHeadline=page.hero.headline.length>88||page.hero.headline.split(/\s+/).length>13?' headline-long':'';
     const section=(page.designBrief?.industry==='technology' && page.sections.find(s=>s.type==='process')) || page.sections.find(s=>s.items.length && !['faq','testimonials','statistics','pricing'].includes(s.type)) || page.sections[0];
     const contentPanel=`<aside class="hero-panel" aria-label="${e(section.heading)}"><p class="panel-label">${e(section.heading)}</p>${section.items.length?`<ul class="hero-index">${section.items.slice(0,3).map(item=>`<li><a href="#${section.id}"><span>${e(item.title)}</span><span aria-hidden="true">↗</span></a><p>${e(item.description)}</p></li>`).join('')}</ul>`:`<p class="panel-prose">${e(section.content)}</p>`}<a class="text-link" href="#${section.id}">${e(section.navLabel || section.heading)} <span aria-hidden="true">↓</span></a></aside>`;
     const productPanel=`<aside class="product-preview" aria-labelledby="workflow-title"><div class="product-preview-toolbar"><span>${e(page.brandName)}</span><span>Illustrative workflow concept</span></div><h2 id="workflow-title">${e(section.heading)}</h2><ol class="workflow-board">${section.items.slice(0,4).map(item=>`<li><h3>${e(item.title)}</h3><p>${e(item.description)}</p></li>`).join('')}</ol><a class="text-link" href="#${section.id}">Explore the workflow ↓</a></aside>`;
@@ -32,6 +32,7 @@ export function renderSection(section, index, page) {
     else if (['menu','schedule','services'].includes(section.type) || section.composition === 'list') body = `<div class="editorial-list">${items.map(item => `<article><div>${itemText({ ...item, detail: '' })}</div>${item.detail ? `<span class="item-detail">${e(item.detail)}</span>` : ''}</article>`).join('')}</div>`;
     else if (section.type === 'testimonials') body = `<div class="quotes">${items.map(item => `<figure><blockquote>${e(item.description)}</blockquote><figcaption>${e(item.title)}${item.detail ? ` · ${e(item.detail)}` : ''}</figcaption></figure>`).join('')}</div>`;
     else if (section.type === 'statistics') body = `<dl class="stat-grid">${items.map(item=>`<div><dt>${e(item.title)}</dt><dd>${e(item.detail)}</dd><dd class="stat-description">${e(item.description)}</dd></div>`).join('')}</dl>`;
+    else if (items.length&&section.composition==='editorial') body = `<div class="editorial-stories">${items.map(item => `<article>${itemText(item)}</article>`).join('')}</div>`;
     else if (items.length) body = `<div class="card-grid">${items.map(item => `<article class="card">${itemText(item)}</article>`).join('')}</div>`;
     if(section.image && section.composition!=='showcase')body=`<figure class="section-image">${picture(section.image)}${imageCaption(section.image)?`<figcaption>${e(imageCaption(section.image))}</figcaption>`:''}</figure>`+body;
     if (section.type === 'contact') body += contactDetails(page.contact);

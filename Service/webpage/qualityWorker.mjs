@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import express from 'express';
+import {checkWebsiteBrowser} from './browserChecks.mjs';
 process.once('message',async({directory,pages})=>{
     let browser,server;
     try{
@@ -26,6 +27,7 @@ process.once('message',async({directory,pages})=>{
                 return {failures,images:document.images.length};
             });
             failures.push(...result.failures.map(failure=>({...failure,file,width})));checks.push({file,width,images:result.images});
+            const interactions=await checkWebsiteBrowser(page);failures.push(...interactions.failures.map(failure=>({...failure,file,width})));
             if(width!==768){const accessibility=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa','wcag22aa']).options({preload:false}).analyze();for(const violation of accessibility.violations)failures.push({code:violation.id==='color-contrast'?'contrast':'accessibility',rule:violation.id,file,width});}
             await page.screenshot({path:path.join(directory,file.replace('.html','')+'-'+width+'.png'),fullPage:true});await context.close();
         }

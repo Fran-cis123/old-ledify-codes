@@ -25,6 +25,8 @@ export function validateWebsiteClaims(page,source,{scope,identity=page.brandName
     if(!source)return;
     identity ||= source.match(/\b(?:called|named|for)\s+([A-Z][A-Za-z0-9&-]*)\b/)?.[1]||source.match(/^([A-Z][A-Za-z0-9&-]*)\s+is\b/)?.[1];
     const evidence=factualSource(source);
+    const failures=[];
+    const attempt=fn=>{try{fn();}catch(error){if(error.code!=='WEBPAGE_VALIDATION_FAILED')throw error;failures.push(error);}};
     // An editorial/science topic is not an organization claiming that it owns
     // infrastructure, facilities or patents. Keep credential/guarantee checks,
     // but do not treat ordinary subject vocabulary as a corporate assertion.
@@ -50,18 +52,20 @@ export function validateWebsiteClaims(page,source,{scope,identity=page.brandName
             if(/committed to (?:delivering )?excellence|innovative solutions|world[ -]class|industry[ -]leading/i.test(sentence)&&!evidence.includes(sentence.toLowerCase()))throw webpageError('Replace generic or unsupported promotional claims with specific supplied information',field);
         }
     };
-    if(page.hero)for(const [field,value]of Object.entries(page.hero))check(value,'hero.'+field);
+    if(page.hero)for(const [field,value]of Object.entries(page.hero))attempt(()=>check(value,'hero.'+field));
     for(const [index,section]of (page.sections||[]).entries()){
         const general=explanatory(section.content||'')||section.items?.some(item=>explanatory(item.description));
-        check(section.heading,`sections[${index}].heading`,{topic:general});check(section.content,`sections[${index}].content`);
+        attempt(()=>check(section.heading,`sections[${index}].heading`,{topic:general}));attempt(()=>check(section.content,`sections[${index}].content`));
+        const illustrativeSection=/\b(?:illustrative|fictional|hypothetical|concept(?:ual)?)\b/i.test(section.content||'');
         for(const [itemIndex,item]of (section.items||[]).entries()){
             const field=`sections[${index}].items[${itemIndex}]`;
-            for(const key of ['title','description','detail'])check(item[key],field+'.'+key,{topic:key==='title'&&explanatory(item.description||'')});
-            if(!informational&&['services','products','projects','gallery'].includes(section.type)&&!explanatory(item.description||'')&&!qualified(item.title+' '+item.description)){
+            for(const key of ['title','description','detail'])attempt(()=>check(item[key],field+'.'+key,{topic:key==='title'&&explanatory(item.description||'')}));
+            if(!informational&&['services','products','projects'].includes(section.type)&&!illustrativeSection&&!explanatory(item.description||'')&&!qualified(item.title+' '+item.description)){
                 const tokens=(item.title.toLowerCase().match(/[a-z]{4,}/g)||[]).filter(word=>!['professional','services','service','product','products','information','overview','approach'].includes(word));
-                if(tokens.length&&!tokens.some(word=>evidence.includes(word)))throw webpageError('Do not invent named services, products or projects. Use supplied offerings or clearly mark missing information.',field);
+                if(tokens.length&&!tokens.some(word=>evidence.includes(word)))failures.push(webpageError('Do not invent named services, products or projects. Use supplied offerings or clearly label the collection or item as illustrative examples.',field));
             }
         }
     }
-    if(page.callToAction)for(const [field,value]of Object.entries(page.callToAction))check(value,'callToAction.'+field);
+    if(page.callToAction)for(const [field,value]of Object.entries(page.callToAction))attempt(()=>check(value,'callToAction.'+field));
+    if(failures.length)throw Object.assign(failures[0],{validationErrors:failures.slice(0,16).map(error=>({field:error.field,repairHint:error.repairHint,validationRule:error.validationRule}))});
 }

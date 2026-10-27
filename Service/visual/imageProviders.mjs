@@ -51,6 +51,8 @@ export function candidateSuitability(query,asset,{partial=false}={}){
     ])if(requested.test(query)&&!evidence.test(combined))return -1;
     if(/\b(?:modern|contemporary)\b/i.test(query)&&/\b(?:17\d\d|18\d\d|colonial|historic|baroque|georgian)\b/i.test(combined)&&!/\b(?:modern|modernist|contemporary)\b/i.test(combined))return -1;
     if(/\b(?:cars?|vehicles?|automotive|automobiles?|sedans?|suvs?|chassis|dashboard)\b/i.test(query)){
+        if(!/\b(?:military|police|ambulance|fire (?:engine|truck))\b/i.test(query)&&/\b(?:military|police|ambulances?|fire (?:engines?|trucks?))\b/i.test(title+' '+description))return -1;
+        if(/\bexterior\b/i.test(query)&&/\b(?:hood ornament|emblem|badge|logo|dashboard|cockpit|headlight|headlamp|interior|wheel)\b/i.test(title))return -1;
         if(!/\b(?:cars?|vehicles?|automotive|automobiles?|sedans?|suvs?|chassis|dashboard)\b/i.test(combined))return -1;
         if(!historical&&/\b(?:scrap|scrapped|compacted|wreck|wrecked|crash|crashed|antique|vintage|193\d|194\d)\b/i.test(combined))return -1;
         if(!/\b(?:tram|cable car|rail|train|repair|restoration)\b/i.test(query)&&/\b(?:cable[ -]?cars?|streetcars?|trams?|railway|trolley|missing parts|broken|dismantled|diecast|toy cars?|abandoned|deployed airbag|damaged|worn|derelict|rusted|rusty|dilapidated|disused)\b/i.test(combined))return -1;

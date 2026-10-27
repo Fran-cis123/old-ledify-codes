@@ -124,6 +124,7 @@ export function createGenerationHandlers({ model = generateModel, generator = ge
                 if(status===429)res.set?.('Retry-After','30');
                 return res.status(status).json({message:error.message,error:error.message,errorCode:code,stage:'input-extraction'});
             }
+            if(code==='AI_RETRY_EXHAUSTED'||code==='AI_SCHEMA_VALIDATION_FAILED')return res.status(502).json({message:'Generated content did not pass validation. No invalid artifact was published.',errorCode:code,stage:error.stage||'content-validation',field:error.field,validationRule:error.validationRule,requestId:error.requestId,lastErrorCode:error.lastErrorCode,retryable:false});
             const clientError = /^(INVALID_|SOURCE_URL|WEBPAGE_VALIDATION|WEBPAGE_STATIC)/.test(code);
             return res.status(clientError ? 400 : 500).json({ message: clientError ? error.message : 'Generation failed; see errorCode and stage', error: clientError ? error.message : 'Unable to complete generation',
                 errorCode: code, stage: error.stage||'generation', slideNumber: error.slideNumber,sectionId:error.sectionId,validationRule:error.validationRule, field: error.field, minCharacters:error.minCharacters,maxCharacters:error.maxCharacters, requestId: error.requestId, lastErrorCode: error.lastErrorCode });

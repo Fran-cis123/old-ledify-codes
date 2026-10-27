@@ -11,6 +11,9 @@ export function createApp(options={}) {
     const app=express();
     // Run before body parsing so validation errors are readable by browsers too.
     app.use(cors({exposedHeaders:['Location','Preference-Applied','Retry-After','X-Ledify-Response-Version','Server-Timing','Warning']}));
+    app.get('/healthz',(req,res)=>res.json({status:'alive'}));
+    app.get('/readyz',(req,res)=>{const ready=options.isReady?.()!==false;res.set('Cache-Control','no-store');res.status(ready?200:503).json({status:ready?'ready':'starting'});});
+    app.use('/api/generate',(req,res,next)=>{if(options.isReady?.()!==false)return next();res.set('Retry-After','3');return res.status(503).json({errorCode:'SERVICE_NOT_READY',stage:'admission',message:'The service is connecting to its database. Retry shortly.'});});
     app.use(express.json({limit:'16mb'}));
     app.use('/api',createGenerationRouter(options));
     app.get('/',(req,res)=>res.json({message:'Ledify backend API',generationEndpoint:'/api/generate',buildCommit:process.env.RENDER_GIT_COMMIT||null}));

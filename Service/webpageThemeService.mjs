@@ -1,4 +1,5 @@
 import {completeVisualTokens,sectionVisualTokens} from './webpage/visualTokens.mjs';
+import {websiteDesignProfile} from './webpage/designProfiles.mjs';
 export const palettes = Object.freeze({
     editorial: { primary: '#25251f', accent: '#ce512a', background: '#f5f2e9', surface: '#fffdf7', text: '#25251f', muted: '#5f6058' },
     product: { primary: '#142d36', accent: '#c5f266', background: '#f5f8f7', surface: '#ffffff', text: '#17303a', muted: '#50656c' },
@@ -16,6 +17,12 @@ export function contrast(a, b) {
 }
 export const foreground = bg => contrast('#000000', bg) >= contrast('#ffffff', bg) ? '#000000' : '#ffffff';
 const curated={
+    'midnight-blue':{primary:'#a8c0ff',accent:'#b7a1ff',background:'#0b1121',surface:'#151f34',text:'#f4f7ff',muted:'#b0bdd5',secondary:'#5c7cfa'},
+    'champagne-ivory':{primary:'#243e34',accent:'#dfc69a',background:'#f7f4ed',surface:'#fffefb',text:'#242d29',muted:'#626961',secondary:'#485b50'},
+    'clinical-teal':{primary:'#115d6a',accent:'#b3e2d4',background:'#f7fbfc',surface:'#ffffff',text:'#19333f',muted:'#4b6570',secondary:'#306f90'},
+    'scholar-blue':{primary:'#254f9b',accent:'#f0d3a6',background:'#fbf8f1',surface:'#ffffff',text:'#203049',muted:'#596579',secondary:'#426b91'},
+    'emerald-ink':{primary:'#153f45',accent:'#a9d6bf',background:'#f6f8f7',surface:'#ffffff',text:'#183035',muted:'#56696a',secondary:'#263b61'},
+    'moss-stone':{primary:'#31533d',accent:'#d5dfb4',background:'#f5f6ef',surface:'#fffef8',text:'#27382b',muted:'#5b6a57',secondary:'#4a706c'},
     'navy-jade':{primary:'#0b1f3a',accent:'#a4d7c9',background:'#f4f7f8',surface:'#ffffff',text:'#142635',muted:'#50616e'},
     'aubergine-sand':{primary:'#402b46',accent:'#d8c29d',background:'#f6f2ed',surface:'#ffffff',text:'#302b34',muted:'#635b66'},
     'charcoal-saffron':{primary:'#2b2118',accent:'#e8a33d',background:'#fcf5e9',surface:'#fffaf3',text:'#33271f',muted:'#746151'},
@@ -32,6 +39,7 @@ const curated={
 };
 const blend=(a,b,weight)=>'#'+a.slice(1).match(/../g).map((v,i)=>Math.round(parseInt(v,16)*(1-weight)+parseInt(b.slice(1+i*2,3+i*2),16)*weight).toString(16).padStart(2,'0')).join('');
 export function webpageThemeService(page, context = {}) {
+    const profile=websiteDesignProfile(page,context);
     const categoryPreset = { portfolio: 'editorial', startup: 'product', product: 'product', education: 'academy', restaurant: 'table', event: 'table', business: 'classic', service: 'classic', nonprofit: 'academy', agency: 'editorial', informational: 'classic' };
     const aliases = { modern: 'product', nature: 'academy' };
     const requested = context.designPreferences?.preset || page.design?.preset;
@@ -42,10 +50,11 @@ export function webpageThemeService(page, context = {}) {
     if(requestedPalette && requestedPalette!=='auto' && !curated[requestedPalette])throw new Error('Unsupported website palette');
     const mood=[context.topic,context.websiteBrief?.brandPersonality,...(context.websiteBrief?.designAdjectives||[]),page.creativeDirection?.personality,page.visualDirection].filter(Boolean).join(' ');
     const inferred=/dark|night|futuristic/i.test(mood)?(/ocean|calm|nature/i.test(mood)?'ocean-night':'midnight-electric'):/playful|sunny|joyful/i.test(mood)?'sunflower':/earthy|terracotta|rustic/i.test(mood)?'terracotta':null;
-    const paletteId=requestedPalette && requestedPalette!=='auto'?requestedPalette:inferred||defaults[industry];
+    const callerPalette=context.designPreferences?.paletteId;
+    const paletteId=callerPalette&&callerPalette!=='auto'?callerPalette:profile.palette||requestedPalette&&requestedPalette!=='auto'&&requestedPalette||inferred||defaults[industry];
     const colors = { ...(curated[paletteId] || palettes[preset]) };
     for (const key of ['primary', 'secondary', 'accent','background','surface','text','muted']) {
-        const value = context.designPreferences?.colors?.[key] || page.design?.[key] || page.design?.colors?.[key];
+        const value = context.designPreferences?.colors?.[key] || (!profile.palette&&!curated[paletteId]?(page.design?.[key] || page.design?.colors?.[key]):null);
         if (value && !/^#[\da-f]{6}$/i.test(value)) throw new Error('Invalid design color: ' + key);
         if (value) colors[key] = value;
     }
@@ -57,7 +66,7 @@ export function webpageThemeService(page, context = {}) {
     if(contrast(colors.muted,colors.surface)<4.5)colors.muted=colors.text;
     colors.border=blend(colors.background,colors.text,.22);colors.primaryHover=blend(colors.primary,colors.text,.12);colors.onPrimaryHover=foreground(colors.primaryHover);colors.focus=colors.text;
     const pairs={humanist:{heading:"'Segoe UI',Arial,sans-serif",body:"'Segoe UI',Arial,sans-serif"},editorial:{heading:"Georgia,'Times New Roman',serif",body:"'Segoe UI',Arial,sans-serif"},technical:{heading:"Arial,Helvetica,sans-serif",body:"Arial,Helvetica,sans-serif"},classical:{heading:"'Palatino Linotype',Palatino,Georgia,serif",body:"Arial,Helvetica,sans-serif"},geometric:{heading:"'Century Gothic',Futura,'Trebuchet MS',sans-serif",body:"'Segoe UI',Arial,sans-serif"},display:{heading:"'Trebuchet MS','Arial Black',sans-serif",body:"'Segoe UI',Arial,sans-serif"},mono:{heading:"Consolas,'Courier New',monospace",body:"'Segoe UI',Arial,sans-serif"}};
-    const fontPair=context.websiteBrief?.preferredTypography || context.designPreferences?.fontPair || page.designSpec?.fontPair || 'humanist';
+    const fontPair=context.websiteBrief?.preferredTypography || context.designPreferences?.fontPair || profile.font || page.designSpec?.fontPair || 'humanist';
     if(!pairs[fontPair])throw new Error('Unsupported website font pair');
     const tokens=completeVisualTokens(colors);
     const sectionTokens=Object.fromEntries(page.sections.map(section=>[section.id,sectionVisualTokens(tokens,section.background||'plain')]));
@@ -65,5 +74,5 @@ export function webpageThemeService(page, context = {}) {
     const dark=contrast(tokens.background,'#ffffff')>8;
     const contrastingSections=page.sections.some(section=>['brand','accent','dark'].includes(section.background));
     const rationale={emotionalQualities:page.creativeDirection?.personality||'clear and credible',associations:page.creativeDirection?.concept||page.designBrief?.visualTone||page.visualDirection||'content-led identity',selection:(requestedPalette&&requestedPalette!=='auto'?'Explicit design selection':inferred?'Brief personality and visual associations':'Contextual starting point with supplied brand overrides')+`; ${paletteId||preset} supports the requested concept: ${page.creativeDirection?.concept||page.title}. Text and surfaces are resolved separately for readability.`,mode:contrastingSections?'mixed':dark?'dark':'light',sectionTreatments:page.sections.map(section=>section.background)};
-    return { ...page, designSpec:{...page.designSpec,paletteId:paletteId||preset,fontPair}, theme: { preset, paletteId:paletteId||preset, colors:tokens,sectionTokens,rationale, typography:pairs[fontPair], density:page.designBrief?.density || 'comfortable',creativeDirection:page.creativeDirection } };
+    return { ...page, designSpec:{...page.designSpec,paletteId:paletteId||preset,fontPair}, theme: { preset, profileId:profile.id,paletteId:paletteId||preset, colors:tokens,sectionTokens,rationale, typography:pairs[fontPair], density:page.designBrief?.density || 'comfortable',creativeDirection:page.creativeDirection } };
 }

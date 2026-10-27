@@ -1,13 +1,19 @@
 import {centralImageSubject} from './imageReview.mjs';
 import {imageContextExclusions} from '../visual/imageRelevance.mjs';
+import {wantsTextOnly} from '../visual/imageArtDirection.mjs';
+import {requestedLabels} from '../ai/requestedLabels.mjs';
+import {imageIdentityLabel} from '../visual/imageIdentity.mjs';
 const bounded=(value,fallback,min,max)=>Number.isFinite(Number(value))?Math.min(max,Math.max(min,Math.floor(Number(value)))):fallback;
 export function imagePolicy(env=process.env){
-    return {maxAssets:bounded(env.WEBPAGE_IMAGE_MAX_ASSETS,4,1,8),maxGenerated:bounded(env.WEBPAGE_IMAGE_MAX_GENERATED,2,0,4),timeoutMs:bounded(env.WEBPAGE_IMAGE_TIMEOUT_MS,30000,1000,60000),totalMs:bounded(env.WEBPAGE_IMAGE_TOTAL_MS,60000,1000,120000),retries:bounded(env.WEBPAGE_IMAGE_RETRIES,0,0,1),concurrency:bounded(env.WEBPAGE_IMAGE_CONCURRENCY,1,1,2)};
+    return {maxAssets:bounded(env.WEBPAGE_IMAGE_MAX_ASSETS,8,1,8),maxGenerated:bounded(env.WEBPAGE_IMAGE_MAX_GENERATED,2,0,4),timeoutMs:bounded(env.WEBPAGE_IMAGE_TIMEOUT_MS,30000,1000,60000),totalMs:bounded(env.WEBPAGE_IMAGE_TOTAL_MS,60000,1000,120000),retries:bounded(env.WEBPAGE_IMAGE_RETRIES,0,0,1),concurrency:bounded(env.WEBPAGE_IMAGE_CONCURRENCY,1,1,2)};
 }
 export function planWebsiteImages(page,context={}){
+    if(wantsTextOnly(context))return [];
     const instructions=[context.instructions,...(Array.isArray(context.keyInstructions)?context.keyInstructions:[])].join(' ');
     const requestedHero=instructions.match(/\bhero(?:\s+section)?\b[^.!?\n]{0,35}\b(?:featuring|showing|depicting)\s+([^.!?\n]{5,300})/i)?.[1]?.trim();
     const conceptImagery=/\b(?:futuristic|speculative)\b[^.!?\n]{0,35}\b(?:imagery|images?|scenes?|renderings?)\b/i.test(instructions)&&!/\b(?:authentic|real|actual)\b[^.!?\n]{0,45}\b(?:photographs?|photography)\b/i.test(instructions);
+    const exactObjects=/\b(?:every|each|all)\b[^.!?\n]{0,50}\b(?:photographs?|photos?|images?)\b[^.!?\n]{0,60}\bmatch\b/i.test(instructions);
+    const namedLabels=requestedLabels(instructions);
     const requireImages=/\b(?:images?|imagery|photographs?|photography|pictures?)\b/i.test(instructions)&&! /\b(?:no|without|avoid)\s+(?:images?|pictures?|photographs?|photography)\b/i.test(instructions);
     const everySection=/\b(?:every|each|all)\s+(?:content\s+)?sections?\b[^.!?\n]{0,100}\b(?:images?|pictures?|photographs?)\b|\b(?:images?|pictures?|photographs?)\b[^.!?\n]{0,70}\b(?:every|each|all)\s+sections?\b/i.test(instructions);
     const style=[page.websiteBrief?.photography.style,page.websiteBrief?.photography.lighting,page.websiteBrief?.photography.temperature].filter(Boolean).join('; ')||'natural editorial';
@@ -27,13 +33,15 @@ export function planWebsiteImages(page,context={}){
     });
     if(!planned.some(image=>image.role==='hero')&&(page.designBrief.heroComposition!=='product'||subjects.some(subject=>!/workflow/i.test(subject))))planned.unshift(hero);
     for(const section of page.sections){
-        if(section.type==='gallery')for(const item of section.items){
+        if(section.type==='gallery'||exactObjects&&['products','projects'].includes(section.type))for(const item of section.items){
             if(!planned.some(image=>image.sectionId===section.id&&image.itemTitle===item.title))planned.push({role:'item',sectionType:section.type,sectionId:section.id,itemTitle:item.title,query:`${item.title}. ${item.description}`,alt:`Illustrative ${item.title}`,aspectRatio:'3:2',style});
         }
         else if(['image-text','image-band'].includes(section.composition)&&!planned.some(image=>image.sectionId===section.id))planned.push({role:'section',sectionType:section.type,sectionId:section.id,query:`${section.heading}. ${subjects.join(', ')}`,alt:`Illustrative imagery: ${section.heading}`,aspectRatio:'16:9',style});
     }
     const seen=new Set();return planned.filter(image=>{const key=[image.role,image.sectionId,image.itemTitle].join(':');if(seen.has(key))return false;seen.add(key);return true;}).map(image=>({...image,
         ...(conceptImagery?{visualIntent:'concept'}:{}),
+        ...(!conceptImagery&&/\b(?:photographs?|photography|photographed)\b/i.test(instructions)?{visualIntent:'photograph'}:{}),
+        ...(exactObjects&&image.role==='item'&&['products','projects'].includes(image.sectionType)?{identityLabel:imageIdentityLabel(image.itemTitle,namedLabels)}:{}),
         ...(image.role==='hero'&&requestedHero?{query:requestedHero,centralConcepts:undefined,alt:requestedHero}:{}),
         topic:page.inferredContext?.topic||page.title,sectionTopic:image.itemTitle||page.sections.find(section=>section.id===image.sectionId)?.heading||'',
         exclusions:imageContextExclusions(context),

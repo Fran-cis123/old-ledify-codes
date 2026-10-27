@@ -10,6 +10,7 @@ import {testingIssuesRequests} from './fixtures/testingIssuesRequests.mjs';
 const phase=process.argv[2]||'baseline',root=path.resolve('generated/performance-audit',phase);
 await fs.mkdir(root,{recursive:true});
 const requests=[
+ {name:'apex',auditOnly:true,...JSON.parse(await fs.readFile(new URL('./fixtures/apexMotorsRequest.json',import.meta.url),'utf8')),textPrompt:JSON.parse(await fs.readFile(new URL('./fixtures/apexMotorsRequest.json',import.meta.url),'utf8')).textPrompt.replace("The website must deliver a breathtaking digital experience that immediately captures visitors' attention. ",'').replace('Every section should feel polished, modern, immersive, and visually extraordinary. ','')},
  {name:'future2080',auditOnly:true,...JSON.parse(await fs.readFile(new URL('./fixtures/futureHumanityWebpageRequest.json',import.meta.url),'utf8'))},
  {name:'space10',auditOnly:true,...JSON.parse(await fs.readFile(new URL('./fixtures/beyondEarthPresentationRequest.json',import.meta.url),'utf8'))},
  ...testingIssuesRequests,

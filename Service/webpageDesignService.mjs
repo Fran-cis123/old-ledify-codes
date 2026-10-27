@@ -1,6 +1,7 @@
 import { COMPOSITIONS, INDUSTRIES, HERO_COMPOSITIONS, FONT_PAIRS, PALETTE_IDS } from '../templates/webpage/webpageSchema.mjs';
 import { webpageError } from './webpageContentValidator.mjs';
 import {directWebsite} from './webpage/creativeDirection.mjs';
+import {websiteDesignProfile} from './webpage/designProfiles.mjs';
 
 export function validateDesignBrief(brief) {
     if (!brief) return;
@@ -15,9 +16,11 @@ export function planWebpageDesign(page, context = {}) {
     validateDesignBrief(page.designBrief);
     const topic = `${page.title} ${page.hero.subheadline} ${page.visualDirection || ''} ${context.topic || ''}`;
     const categories = { restaurant:'hospitality', startup:'technology', product:'technology', portfolio:'creative', agency:'creative', education:'education', ecommerce:'retail' };
+    const profile=websiteDesignProfile(page,context);
     const detected=/\b(?:pharma\w*|laborator\w*|healthcare|clinical|medical|biotech\w*)\b/i.test(topic)?'healthcare':/law firm|legal|solicitor|attorney/i.test(topic)?'legal':/financ|accountancy/i.test(topic)?'finance':/real estate|\bproperty\b|properties|residential/i.test(topic)?'real-estate':/fitness|wellness|gym/i.test(topic)?'fitness':null;
-    const industry = context.websiteBrief?.industry || (page.designBrief?.industry&&!['general','professional'].includes(page.designBrief.industry)?page.designBrief.industry:detected || categories[page.pageType] || page.designBrief?.industry || 'professional');
-    const heroComposition = page.designSpec?.heroComposition || page.designBrief?.heroComposition || ({ creative:'editorial', education:'image-led', hospitality:'full-bleed', technology:'product', retail:'asymmetric','real-estate':'asymmetric',legal:'minimal',finance:'minimal',fitness:'full-bleed',healthcare:'split' })[industry] || 'split';
+    const industry = context.websiteBrief?.industry || (profile.id!=='editorial'?profile.industry:null) || (page.designBrief?.industry&&!['general','professional'].includes(page.designBrief.industry)?page.designBrief.industry:detected || categories[page.pageType] || page.designBrief?.industry || 'professional');
+    const inferredAiHero=profile.id==='intelligence'&&page.designBrief?.industry==='education'?profile.hero:null;
+    const heroComposition = context.designPreferences?.heroComposition || inferredAiHero || page.designSpec?.heroComposition || page.designBrief?.heroComposition || profile.hero || ({ creative:'editorial', education:'image-led', hospitality:'full-bleed', technology:'product', retail:'asymmetric','real-estate':'asymmetric',legal:'minimal',finance:'minimal',fitness:'full-bleed',healthcare:'split' })[industry] || 'split';
     const designBrief = { audience: page.inferredContext?.audience || '', conversionGoal:page.hero.actionLabel, visualTone:'considered', imageDirection:'', density:'comfortable', ...page.designBrief, industry, heroComposition };
     let previous;
     const sections = page.sections.map((section, index) => {

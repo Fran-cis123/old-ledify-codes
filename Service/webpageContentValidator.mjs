@@ -3,6 +3,7 @@ import { PAGE_TYPES, SECTION_TYPES, COMPOSITIONS, webpagePlanSchema } from '../t
 import { validateWebsiteClaims } from './webpage/contentGrounding.mjs';
 import {validateEditorialCopy,contentSpecificationSchema} from './webpage/contentSpecification.mjs';
 import {webpageError} from './webpage/errors.mjs';
+import {numericClaims} from './ai/numericClaims.mjs';
 export {webpageError} from './webpage/errors.mjs';
 
 export function safeLink(value) {
@@ -55,7 +56,8 @@ export function validateWebpageContent(page, { plan, schema, source = '',scope=p
     if(page.contentSpecification)validateSchema(page.contentSpecification,contentSpecificationSchema);
     validateTextSafety(page, 'webpage');
     validateEditorialCopy(page);
-    validateWebsiteClaims(page,source,{scope,identity,pageType:plan?.pageType||page.pageType});
+    const semanticErrors=[];
+    try{validateWebsiteClaims(page,source,{scope,identity,pageType:plan?.pageType||page.pageType});}catch(error){if(error.code!=='WEBPAGE_VALIDATION_FAILED')throw error;semanticErrors.push(error);}
     const requireText = (value, field, limit) => {
         if (typeof value !== 'string' || !value.trim() || value.length > limit) throw Object.assign(webpageError(`Required readable text in ${field} (maximum ${limit} characters)`, field),{maxCharacters:limit,validationRule:'READABLE_TEXT'});
     };
@@ -96,19 +98,20 @@ export function validateWebpageContent(page, { plan, schema, source = '',scope=p
     if (contact.email && !/^[\w.!#$%&'*+/=?^`{|}~-]+@[\w.-]+\.[a-z]{2,}$/i.test(contact.email)) throw webpageError('Invalid contact email', 'contact.email');
     if (contact.phone && !/^[+\d\s().-]{5,35}$/.test(contact.phone)) throw webpageError('Invalid telephone number', 'contact.phone');
     if (source) {
-        for (const [field, value] of Object.entries(contact)) if (value && !sourceText.includes(normalize(value))) throw webpageError('Contact information must occur in the source', `contact.${field}`);
+        for (const [field, value] of Object.entries(contact)) if (value && !sourceText.includes(normalize(value))) semanticErrors.push(webpageError('Contact information must occur in the source', `contact.${field}`));
         // Restrict numerical claims to supplied values; numbering is added by the renderer.
-        const supplied = new Set(source.match(/\d+(?:[.,]\d+)*(?:%|\b)/g) || []);
-        for (const value of strings({ hero: page.hero, sections: page.sections, callToAction: page.callToAction })) {
-            for (const number of value.match(/\d+(?:[.,]\d+)*(?:%|\b)/g) || []) if (!supplied.has(number)) throw webpageError(`Numerical claims must be supplied in the source. Remove unsupported number ${number}; do not add item or step numbers, which the renderer supplies.`, 'sections');
+        const supplied = new Set(numericClaims(source));
+        for (const {text,field} of textFields({ hero: page.hero, sections: page.sections, callToAction: page.callToAction })) {
+            for (const number of numericClaims(text)) if (!supplied.has(number)) semanticErrors.push(Object.assign(webpageError(`Numerical claims must be supplied in the source. Remove unsupported number ${number}; do not add item or step numbers, which the renderer supplies.`, field),{validationRule:'UNSUPPORTED_NUMERIC_CLAIM'}));
         }
     }
     requireText(page.callToAction?.heading, 'callToAction.heading', 120);
     requireText(page.callToAction?.text, 'callToAction.text', 360);
     requireText(page.callToAction?.actionLabel || 'Explore', 'callToAction.actionLabel', 45);
+    if(semanticErrors.length)throw Object.assign(semanticErrors[0],{validationErrors:semanticErrors.flatMap(error=>error.validationErrors||[{field:error.field,repairHint:error.repairHint,validationRule:error.validationRule}]).slice(0,16)});
     return true;
 }
-function strings(value) {
-    if (typeof value === 'string') return [value];
-    return value && typeof value === 'object' ? Object.values(value).flatMap(strings) : [];
+function textFields(value,field='') {
+    if (typeof value === 'string') return [{text:value,field}];
+    return value && typeof value === 'object' ? Object.entries(value).flatMap(([key,child])=>textFields(child,Array.isArray(value)?`${field}[${key}]`:field?`${field}.${key}`:key)) : [];
 }

@@ -6,6 +6,7 @@ import { visualRequirementSchema, diagramSchema } from '../templates/presentatio
 import { resolveSlideCount } from './ai/slideCount.mjs';
 import { numberedSlideRequirements, validateNumberedRequirements } from './ai/presentationIntent.mjs';
 import { randomUUID } from 'node:crypto';
+import {performanceRequestId} from './performance.mjs';
 import { generateJsonWithRetry } from './ai/generateJsonWithRetry.mjs';
 import { generationConcurrency, generateContentUnits as generateInBatches } from './ai/concurrency.mjs';
 import { buildOutlinePrompt, buildSlidePrompt, validateOutline, outlineProviderSchema } from './ai/presentationPrompts.mjs';
@@ -1326,7 +1327,7 @@ Return only valid JSON that matches the response schema.
 
 // Shared response validation and bounded retries for each independent stage.
 const client = options.client || ai;
-const requestId = randomUUID();
+const requestId = performanceRequestId()||randomUUID();
 const run = (args) => generateJsonWithRetry({ client, requestId, logger: options.logger, sleep: options.sleep, ...args });
 const isPresentation = outputType === 'presentation';
 const schema = isPresentation ? presentationPlanSchema : outputSchema;

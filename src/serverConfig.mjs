@@ -24,6 +24,7 @@ export function readServerConfig(env=process.env) {
     return {mongoUrl,port,host:'0.0.0.0'};
 }
 export function safeStartupError(error) {
+    if(error.stage==='job-recovery')return {code:'JOB_RECOVERY_FAILED',message:'Unable to recover generation jobs. Verify that LEDIFY_JOB_ROOT is writable and its persisted files are available.'};
     const failures=[],seen=new Set();
     const inspect=(value,depth=0)=>{
         if(!value||typeof value!=='object'||depth>6||seen.has(value))return;

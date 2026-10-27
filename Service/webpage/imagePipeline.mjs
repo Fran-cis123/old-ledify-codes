@@ -14,6 +14,7 @@ import {relevanceDiagnostic} from '../visual/imageRelevance.mjs';
 import {generationConcurrency,generateIndependent} from '../ai/concurrency.mjs';
 import {classifyImageError,imageBackoff,imageDiagnostic} from '../visual/imageAssetService.mjs';
 import {requiresConceptImage} from './imageIntent.mjs';
+import {wantsTextOnly} from '../visual/imageArtDirection.mjs';
 
 const bundledCatalog=fileURLToPath(new URL('../../assets/webpage/curated/catalog.json',import.meta.url));
 const safeCreditUrl=value=>{try{const url=new URL(value);url.search='';url.hash='';return url.protocol==='https:'&&!url.username&&!url.password?url.href:'';}catch{return '';}};
@@ -21,6 +22,7 @@ const safeCreditUrl=value=>{try{const url=new URL(value);url.search='';url.hash=
 export async function acquireWebsiteImages(page,context={},options={}){
     const warnings=[],assets={},selected=[],diagnostics=[],disabled=new Set();
     const requests=planWebsiteImages(page,context);
+    if(wantsTextOnly(context))return {page:{...page,sections:page.sections.map(section=>({...section,image:undefined,items:section.items.map(item=>({...item,image:undefined}))})),visualAssets:{credits:[]},imageValidation:{status:'passed',requiredMissing:[]},imageStrategy:{plan:[],planned:0,resolved:0,unmet:0,generatedCalls:0,diagnostics:[]}},assets,warnings};
     const logImage=entry=>{diagnostics.push(entry);imageDiagnostic({generationType:'webpage',...entry},options.logger);};
     const policy={...imagePolicy(),...options.policy},started=Date.now();let generatedCalls=0;
     const user=userWebsiteBrief('',context);
@@ -71,6 +73,7 @@ export async function acquireWebsiteImages(page,context={},options={}){
             if(selected.some(asset=>matches(asset,target)))return;
             if(selected.length>=policy.maxAssets||Date.now()-started>=policy.totalMs)return;
             for(const provider of providers){
+                if((target.identityLabel||target.visualIntent==='photograph')&&provider.id==='gemini-image')continue;
                 if(requiresConceptImage(target)&&['commons','pexels'].includes(provider.id))continue;
                 if(disabled.has(provider.id))continue;
                 let resolved=false;
@@ -86,7 +89,7 @@ export async function acquireWebsiteImages(page,context={},options={}){
                         if(record){resolved=await optimize({...record,...target,alt:record.source==='Google Gemini'?target.alt:record.alt||'',buffer:undefined},record.buffer,target);}
                         diagnostics.push(imageDiagnostic({generationType:'webpage',provider:provider.id,model:provider.model,target:target.role,status:resolved?'resolved':'empty',reasonCode:resolved?undefined:'NO_ELIGIBLE_IMAGE',attempt:attempt+1,elapsedMs:performance.now()-attemptStarted,storage:resolved?'optimized':'skipped',validation:resolved?'passed':'rejected',cacheHit:record?.providerCacheHit},options.logger));
                         break;
-                    }catch(error){const info=classifyImageError(error);clearTimeout(timer);logImage({provider:provider.id,model:provider.model,target:target.role,status:'failed',attempt:attempt+1,...info,elapsedMs:performance.now()-attemptStarted});warnings.push({code:'WEBPAGE_IMAGE_PROVIDER_UNAVAILABLE',provider:provider.id,target:target.role,reasonCode:info.reasonCode,message:'An image provider failed or exceeded its budget; the next authorized source is used.'});if(['IMAGE_INVALID_CREDENTIALS','IMAGE_ACCESS_DENIED','IMAGE_MODEL_UNAVAILABLE','IMAGE_REQUEST_REJECTED'].includes(info.reasonCode))disabled.add(provider.id);if(!info.retryable||attempt>=policy.retries||!await imageBackoff(error,attempt,{remainingMs:policy.totalMs-(Date.now()-started),sleep:options.sleep}))break;}
+                    }catch(error){const info=classifyImageError(error);clearTimeout(timer);logImage({provider:provider.id,model:provider.model,target:target.role,status:'failed',attempt:attempt+1,...info,elapsedMs:performance.now()-attemptStarted});warnings.push({code:'WEBPAGE_IMAGE_PROVIDER_UNAVAILABLE',provider:provider.id,target:target.role,reasonCode:info.reasonCode,message:'An image provider failed or exceeded its budget; the next authorized source is used.'});if(['IMAGE_INVALID_CREDENTIALS','IMAGE_ACCESS_DENIED','IMAGE_MODEL_UNAVAILABLE','IMAGE_REQUEST_REJECTED','IMAGE_BILLING_UNAVAILABLE'].includes(info.reasonCode))disabled.add(provider.id);if(!info.retryable||attempt>=policy.retries||!await imageBackoff(error,attempt,{remainingMs:policy.totalMs-(Date.now()-started),sleep:options.sleep}))break;}
                     finally{clearTimeout(timer);controller.abort();}
                 }
                 if(resolved)break;

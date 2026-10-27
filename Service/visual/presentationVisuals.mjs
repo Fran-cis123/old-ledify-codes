@@ -167,7 +167,8 @@ export async function resolvePresentationVisuals(presentation, context = {}, opt
                 const graph=slide.content.relationship;
                 diagram={kind:'labeled',nodes:graph.nodes,edges:graph.relationships,caption:'Schematic of the specified relationships'};
             }
-            if(!diagram && request?.kind!=='photo' && options.diagramPlanner && plannedDiagrams<3){
+            const literalTextOnly=/\btext[ -]only\b|\b(?:no|without|avoid)\s+(?:images?|illustrations?|diagrams?|pictures?)\b/i.test([context.instructions,...(context.keyInstructions||[])].join(' '));
+            if(!diagram && request?.kind!=='photo' && !literalTextOnly && options.diagramPlanner && plannedDiagrams<3){
                 plannedDiagrams++;
                 try{diagram=await options.diagramPlanner({slide,presentation});slide.visualPlan=diagram;}catch{ /* Explicit unresolved warning below. */ }
             }

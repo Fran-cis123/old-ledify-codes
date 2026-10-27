@@ -97,7 +97,7 @@ const generate = async (
         const needsReview=page.contentSpecification?.missingInformation.length||resolved.warnings.length||inspected.warnings.length||inspected.report.browser!=='passed';
         const imagesUnmet=page.imageValidation?.status==='incomplete';
         const strictImages=(options.webpageAssets?.policy?.failureMode||process.env.WEBPAGE_IMAGE_FAILURE_MODE)==='strict';
-        return finish({ ...aiResult, generatedContent: page,imageValidation:page.imageValidation, status: imagesUnmet&&strictImages?'incomplete':artifacts.status==='completed'&&(needsReview||imagesUnmet)?'completed_with_warnings':artifacts.status, artifacts,
+        return finish({ ...aiResult, generatedContent: page,imageValidation:page.imageValidation, status: imagesUnmet&&strictImages?'incomplete':imagesUnmet&&artifacts.status==='completed'?'partial_success':artifacts.status==='completed'&&needsReview?'completed_with_warnings':artifacts.status, artifacts,
             warnings: [...(page.warnings || []),...(page.limitations || []).map(message => ({ code: 'STATIC_SCOPE_LIMITATION', message })), ...resolved.warnings, ...inspected.warnings, ...artifacts.warnings,
                 ...(imagesUnmet?[{code:'IMAGE_REQUIREMENTS_UNMET',stage:'image-validation',message:'Website files are available, but some requested images could not be acquired. Review the missing placements before publishing.',missingTargets:page.imageValidation.requiredMissing||[]}]:[])] });
     }
@@ -256,7 +256,7 @@ const generate = async (
         return finish({
 
             ...aiResult,
-            status: imagesUnmet&&strictImages?'incomplete':preview.status === 'completed' && warnings.length ? 'completed_with_warnings' : preview.status,
+            status: imagesUnmet&&strictImages?'incomplete':imagesUnmet&&preview.status==='completed'?'partial_success':preview.status === 'completed' && warnings.length ? 'completed_with_warnings' : preview.status,
             imageValidation,
             warnings,
 

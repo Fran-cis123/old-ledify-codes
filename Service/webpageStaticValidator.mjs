@@ -17,6 +17,7 @@ export function validateStaticWebsite(files){
     if(Object.values(files).reduce((sum,value)=>sum+Buffer.byteLength(value),0)>12*1024*1024)fail('Website exceeds its byte budget');
     for(const name of names)if(!SITE_FILES.includes(name)&&!pagePattern.test(name)&&name!=='assets/images/hero.svg'&&!imagePattern.test(name))fail('Unexpected or unsafe output path: '+name);
     for(const name of SITE_FILES)if(typeof files[name]!=='string'||!files[name].trim())fail('Missing output file: '+name);
+    if(!/:root\s*\{/.test(files['style.css'])||!/@media\s*\(/.test(files['style.css'])||!/prefers-reduced-motion/.test(files['style.css'])||!/\.container\s*\{/.test(files['style.css']))fail('Missing design tokens, responsive layout or reduced-motion stylesheet rules');
     if(files['script.js']!==script)fail('Unexpected JavaScript implementation');
     if(files['bootstrap.js']!==bootstrap)fail('Unexpected progressive enhancement bootstrap');
     for(const name of names.filter(name=>/\.(?:png|jpg|webp)$/.test(name))){

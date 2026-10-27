@@ -62,7 +62,7 @@ test('all presentation inputs deliver usable artifacts with honest warnings duri
     for(const [name,bytes,mime] of [['source.pdf',pdfSource(),'application/pdf'],['source.docx',await docxSource(),DOCX_MIME]]){
         const form=new FormData();form.append('file',new Blob([bytes],{type:mime}),name);form.append('outputType','presentation');
         const response=await fetch(base+'/api/generate/file',{method:'POST',body:form});assert.equal(response.status,201);const body=await response.json();
-        assert.equal(body.data.result.status,'completed_with_warnings');assert.equal(body.errorCode,undefined);assert.equal(body.data.request.status,'completed');
+        assert.equal(body.data.result.status,'partial_success');assert.equal(body.errorCode,undefined);assert.equal(body.data.request.status,'completed');
         assert.equal(body.data.result.imageValidation.status,'incomplete');
         assert.ok(body.data.result.imageValidation.requiredMissing.length>0);
         assert.ok(body.data.result.warnings.some(w=>w.code==='IMAGE_REQUIREMENTS_UNMET'));
@@ -73,13 +73,13 @@ test('all presentation inputs deliver usable artifacts with honest warnings duri
     }
     for(const [route,body] of [['textPrompt',{textPrompt:'Create a presentation',outputType:'presentation'}],['urlPrompt',{urlPrompt:'https://example.org/source',outputType:'presentation'}],['',{textPrompt:'Create a presentation',urlPrompt:'https://example.org/source',outputType:'presentation'}]]){
         const response=await fetch(base+'/api/generate'+(route?'/'+route:''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});assert.equal(response.status,201);
-        assert.equal((await response.json()).data.result.status,'completed_with_warnings');
+        assert.equal((await response.json()).data.result.status,'partial_success');
     }
     const queued=await fetch(base+'/api/generate/textPrompt',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'respond-async'},body:JSON.stringify({textPrompt:'Create a presentation',outputType:'presentation'})});
     assert.equal(queued.status,202);const accepted=await queued.json();
     let job;const deadline=Date.now()+10000;
     do {const response=await fetch(base+accepted.data.statusUrl);assert.equal(response.status,200);job=(await response.json()).data;if(['completed','failed'].includes(job.status))break;await new Promise(resolve=>setTimeout(resolve,25));}while(Date.now()<deadline);
     assert.equal(job.status,'completed');assert.equal(job.error,undefined);
-    assert.equal(job.result.status,'completed_with_warnings');assert.equal(job.result.imageValidation.status,'incomplete');
+    assert.equal(job.result.status,'partial_success');assert.equal(job.result.imageValidation.status,'incomplete');
     if(result?.preview?.previewId){const base=path.resolve('generated/previews'),target=path.resolve(base,result.preview.previewId);assert.ok(target.startsWith(base+path.sep));t.after(()=>fs.rm(target,{recursive:true,force:true}));}
 });

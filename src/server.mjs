@@ -1,7 +1,10 @@
 import "dotenv/config";
 
-import { createApp } from './app.mjs';
-import { createHttpServer } from './httpServer.mjs';
+import mongoose from 'mongoose';
+import { startBackend } from './serverLifecycle.mjs';
+import {generationJobs} from '../Service/generationJobs.mjs';
+import {generateService} from '../Service/generateService.mjs';
+import generateModel from '../model/generateModel.mjs';
 import { readServerConfig, safeStartupError, configureMongoDns, connectMongoWithRetry } from './serverConfig.mjs';
 
 
@@ -9,16 +12,9 @@ const startServer = async () => {
     try { 
         const {mongoUrl,port,host}=readServerConfig();
         configureMongoDns();
-        const app=createApp();
-        await connectMongoWithRetry(mongoUrl);
-
-        console.log("MongoDB is successfully connected");
-
-        const server=createHttpServer(app).listen(port,host, () => {
-
-        console.log(`Ledify is running on port ${port}`)
-})
+        const {server,ready}=startBackend({config:{port,host},connect:()=>connectMongoWithRetry(mongoUrl),recover:()=>generationJobs({generator:generateService,model:generateModel}).initialize(),databaseAvailable:()=>mongoose.connection.readyState===1,logger:phase=>console.log(phase==='listening'?`Ledify is listening on port ${port}`:'MongoDB is successfully connected; Ledify is ready')});
         server.on('error',error=>{console.error('[STARTUP]',JSON.stringify(safeStartupError(error)));process.exit(1);});
+        await ready;
 
 
     } catch(error) {

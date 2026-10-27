@@ -1,5 +1,6 @@
 import {architectureStyles} from './architectures.mjs';
 import {creativeStyles,collectionScript} from './creativeStyles.mjs';
+import {designSystemStyles} from './designSystem.mjs';
 export function stylesheet(theme) {
     const vars = Object.entries(theme.colors).map(([key, value]) => `--${key}:${value}`).join(';');
     return `:root{${vars};--heading:${theme.typography?.heading || 'Georgia,serif'};--body:${theme.typography?.body || 'Arial,sans-serif'};--radius:14px;--gap:clamp(24px,4vw,56px);--section:${theme.density==='compact'?'clamp(48px,6vw,80px)':'clamp(60px,7vw,100px)'};font-family:var(--body);font-size:16px;color:var(--text);background:var(--background);font-synthesis:none}
@@ -16,6 +17,7 @@ export function stylesheet(theme) {
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.button{transition:none}.button:hover{transform:none}}
 ${architectureStyles(theme)}
 ${creativeStyles(theme)}
+${designSystemStyles(theme)}
 `;
 }
 export const bootstrap = "document.documentElement.classList.add('js');";

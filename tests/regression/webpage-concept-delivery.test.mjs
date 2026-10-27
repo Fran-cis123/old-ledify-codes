@@ -50,7 +50,7 @@ test('website missing required concept imagery returns available files with HTTP
  for(const strict of [false,true]){
   const response=await fetch(origin+'/api/generate/textPrompt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({textPrompt:'Create a website with images and a futuristic city hero.',outputType:'webpage',context:{tone:strict?'strict':'educational'}})});
   const body=await response.json(),result=body.data.result;
-  assert.equal(response.status,strict?422:201);assert.equal(result.status,strict?'incomplete':'completed_with_warnings');
+  assert.equal(response.status,strict?422:201);assert.equal(result.status,strict?'incomplete':'partial_success');
   assert.equal(result.imageValidation.status,'incomplete');assert.ok(result.warnings.some(w=>w.code==='IMAGE_REQUIREMENTS_UNMET'));assert.ok(result.artifacts.previewUrl);assert.ok(result.artifacts.downloadUrl);
   const zip=await fetch(origin+result.artifacts.downloadUrl);assert.equal(zip.status,200);assert.ok((await zip.arrayBuffer()).byteLength>100);
  }

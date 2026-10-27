@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import {performanceRequestId} from '../performance.mjs';
+import {requestedLabels,validateRequestedLabels} from './requestedLabels.mjs';
 import { MAX_SOURCE_CHARACTERS } from '../input/sourceLimits.mjs';
 import { generateJsonWithRetry } from './generateJsonWithRetry.mjs';
 import { webpagePlanSchema, webpageContentSchema,webpagePlanningProviderSchema } from '../../templates/webpage/webpageSchema.mjs';
@@ -21,7 +23,8 @@ During planning include designSpec: paletteId, fontPair, heroComposition, motion
 export async function generateWebpageContent({ client, inputType, input, context = {}, options = {} }) {
     if (typeof input !== 'string' || !input.trim() || input.length > MAX_SOURCE_CHARACTERS) throw webpageError('Webpage source must contain 1–200,000 characters. Supply a shorter source if necessary.', 'input', 'INVALID_WEBPAGE_INPUT');
     const requestedBrief=userWebsiteBrief(input,context);
-    const requestId = randomUUID();
+    const requiredLabels=requestedLabels(inputType==='prompt'?input:context.instructions||'');
+    const requestId = performanceRequestId()||randomUUID();
     const common = { client, requestId, outputType: 'webpage', strict: true, logger: options.logger, sleep: options.sleep };
     const source = `${input}\n${JSON.stringify(context)}`;
     const originalPlan = options.initialPlan || await generateJsonWithRetry({ ...common, stage: 'webpage-planning', schema: webpagePlanSchema,
@@ -35,9 +38,13 @@ export async function generateWebpageContent({ client, inputType, input, context
     await options.onPlan?.(plan);
     const schema = webpageContentSchema(plan);
     const draft = await generateJsonWithRetry({ ...common, stage: 'webpage-content', schema,
-        validate: value => {try{reframeScopedHero(value,specification);validateWebpageContent(value, { plan, schema, source,scope:specification.mode,identity:specification.identity });}catch(error){options.onInvalidContent?.({content:value,field:error.field,message:error.message});throw error;}},
+        validate: value => {try{
+            reframeScopedHero(value,specification);const failures=[];
+            for(const check of [()=>validateWebpageContent(value,{plan,schema,source,scope:specification.mode,identity:specification.identity}),()=>validateRequestedLabels(value,requiredLabels)])try{check();}catch(error){failures.push(error);}
+            if(failures.length)throw Object.assign(failures[0],{validationErrors:failures.flatMap(error=>error.validationErrors||[{field:error.field,repairHint:error.repairHint||error.message,validationRule:error.validationRule}]).slice(0,16)});
+        }catch(error){options.onInvalidContent?.({content:value,field:error.field,message:error.message});throw error;}},
         request: { model: process.env.GEMINI_WEBPAGE_CONTENT_MODEL || 'gemini-3.5-flash',
-            contents: `${rules}\nWrite complete concise content for this exact ordered plan. Write an expressive, specific hero in about 5–9 words; avoid generic Welcome to headlines, SEO titles or dry category labels. Use a concise benefit or purpose supported by the source. Keep description under 200 characters; hero subheadline under 250; section introductions under 100 words; item descriptions under 45 words. Use exact section types and order. Use natural section headings; do not repeat the hero headline as a section heading. For a concept product clearly qualify the hero/introduction as proposed, without mechanically repeating Proposed in every heading. Item detail is for supplied prices/dates or meaningful word labels; otherwise empty. Never add ordinal digits such as 01, 02, Step 1 or invented project years to item fields: the renderer numbers ordered steps. Item url only for a supplied HTTPS destination. Contact fields are empty unless explicitly supplied. Keep calls to action truthful; use labels such as Explore the work, Browse the menu or Start learning when no contact destination exists.\nContent scope: ${JSON.stringify(specification)}\nPlan: ${JSON.stringify(plan)}\nContext: ${JSON.stringify(context)}\nSource: ${JSON.stringify(input)}`,
+            contents: `${rules}\nWrite complete concise content for this exact ordered plan. Use plain source-supplied object names as product-card titles, keeping general design descriptors in descriptions. Do not invent specific model specifications or inventory. Preserve every explicitly requested brand or named subject in visible copy; group long lists across sections or descriptions rather than dropping entries. A collection introduction can qualify all its examples as illustrative without repeating that label on every card. Numeric-looking identifiers such as V12 or CO2 are names, not quantitative evidence; measured specifications still require supplied sources. Write an expressive, specific hero in about 5–9 words; avoid generic Welcome to headlines, SEO titles or dry category labels. Use a concise benefit or purpose supported by the source. Keep description under 200 characters; hero subheadline under 250; section introductions under 100 words; item descriptions under 45 words. Use exact section types and order. Use natural section headings; do not repeat the hero headline as a section heading. For a concept product clearly qualify the hero/introduction as proposed, without mechanically repeating Proposed in every heading. Item detail is for supplied prices/dates or meaningful word labels; otherwise empty. Never add ordinal digits such as 01, 02, Step 1 or invented project years to item fields: the renderer numbers ordered steps. Item url only for a supplied HTTPS destination. Contact fields are empty unless explicitly supplied. Keep calls to action truthful; use labels such as Explore the work, Browse the menu or Start learning when no contact destination exists.\nContent scope: ${JSON.stringify(specification)}\nPlan: ${JSON.stringify(plan)}\nContext: ${JSON.stringify(context)}\nSource: ${JSON.stringify(input)}`,
             config: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 8192,thinkingConfig:{thinkingBudget:1024} } }
     });
     return { outputType: 'webpage', inferredContext: plan.inferredContext, pageType: plan.pageType, title: plan.title, brandName: plan.brandName,
