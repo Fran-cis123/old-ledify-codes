@@ -1,6 +1,6 @@
 // A matching request is not evidence about the returned image's contents.
 const domains={
-    space:/\b(?:spacecraft|astronauts?|rockets?|lunar|martian|mars|orbital|planetary|deep[ -]space)\b/i,
+    space:/\b(?:spacecraft|astronauts?|rockets?|lunar|martian|mars|orbits?|orbital|planetary|planets?|exoplanets?|galax(?:y|ies)|spaceflight|spacewalks?|space exploration|space telescopes?|International Space Station|ISS|atmospheric limb|Earth(?:['’]s)? limb|deep[ -]space)\b/i,
     computing:/\b(?:artificial intelligence|machine learning|neural networks?|robot(?:s|ic|ics)?|comput(?:er|ing|ation)|servers?|data cent(?:er|re)s?|processors?|microchips?|AI)\b/i,
     architecture:/\b(?:real estate|propert(?:y|ies)|architectur\w*|mansions?|villas?|penthouses?|residential|interiors?|housing|gated estates?|house interior|wooden house|modern house|luxury homes?)\b/i,
     marine:/\b(?:marine|ocean|sea turtles?|coral|whales?|dolphins?|sharks?|dugongs?|vaquitas?|reefs?)\b/i,
@@ -16,7 +16,7 @@ const scenes={
     irrigation:/\birrigation\b/i,harvest:/\bharvest\w*\b/i,
     interior:/\b(?:interiors?|living rooms?|bedrooms?|kitchens?)\b/i,mansion:/\b(?:mansions?|villas?)\b/i,
     mri:/\bMRI\b/i,ultrasound:/\bultrasound\b/i,
-    robot:/\brobot(?:s|ic|ics)?\b/i,server:/\b(?:servers?|data cent(?:er|re)s?)\b/i
+    robot:/\b(?:robot(?:s|ic|ics)?|rovers?)\b/i,server:/\b(?:servers?|data cent(?:er|re)s?)\b/i
 };
 export function imageTopicDomains(value){
     const text=String(value||'');

@@ -52,6 +52,19 @@ test('paid generation is not reserved when too little deadline remains for a mea
     const session=createImageAssetSession({root,policy:{...imagePolicy({}),allowGeneration:true,estimatedUnitCost:.1,maxEstimatedCost:2,deadlineMs:100,timeoutMs:1000},providers:{generate:async()=>{calls++;return null;}}});
     await session.resolve(deck,deck.slides[0],theme,{});assert.equal(calls,0);assert.equal(session.budget.report().attempts,0);
 });
+
+test('authentic-photo deck gives each slide one bounded search instead of repeating timed-out searches',async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'ledify-stock-timeouts-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+ const calls=[],aborted=[];
+ const session=createImageAssetSession({root,policy:{...imagePolicy({}),concurrency:1,retries:2,stockSearchTimeoutMs:20},providers:{search:request=>{
+  calls.push(request.slideNumber);return new Promise((resolve,reject)=>request.signal.addEventListener('abort',()=>{aborted.push(request.slideNumber);reject(new Error('Image provider timed out'));},{once:true}));
+ },generate:async()=>{throw new Error('Authentic photography must not use generated substitutes');}}});
+ const slides=Array.from({length:3},(_,i)=>({...deck.slides[0],slideNumber:i+1}));
+ const result=await Promise.all(slides.map(slide=>session.resolve({...deck,slides},slide,theme,{instructions})));
+ assert.deepEqual(result,[null,null,null]);assert.deepEqual(calls,[1,2,3]);assert.deepEqual(aborted,[1,2,3]);
+ assert.equal(session.diagnostics.filter(d=>d.reasonCode==='PROVIDER_TIMEOUT').length,3);
+ assert.ok(session.diagnostics.every(d=>!d.attempt||d.attempt===1));
+});
 test('the travel prompt forces authentic stock photography even when the outline requests generation',()=>{
     assert.equal(requiresAuthenticPhotography({instructions}),true);
     assert.equal(requiresAuthenticPhotography({instructions:'Use AI-generated editorial illustrations.'}),false);

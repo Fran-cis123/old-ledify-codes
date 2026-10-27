@@ -84,6 +84,9 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                             if(deadline-Date.now()<Math.min(1000,policy.timeoutMs/10)){record({slideNumber:slide.slideNumber,method,status:'skipped',reasonCode:'INSUFFICIENT_IMAGE_TIME'});return {stop:true};}
                         if(method==='generate'&&deadline-Date.now()<Math.min(10000,policy.timeoutMs/2)){record({slideNumber:slide.slideNumber,method,status:'skipped',reasonCode:'INSUFFICIENT_GENERATION_TIME'});return {stop:true};}
                         if(method==='generate'&&!budget.reserve()){record({slideNumber:slide.slideNumber,method,status:'skipped',reasonCode:'GENERATION_BUDGET_UNAVAILABLE'});return {stop:true};}
+                        // One search attempt already includes alternate queries and
+                        // candidates. Do not repeat that entire budget on timeout,
+                        // including when only authentic photographs are allowed.
                         const searchTimeout=policy.stockSearchTimeoutMs||12000;
                         const attemptTimeout=method==='search'?Math.min(policy.timeoutMs,searchTimeout):policy.timeoutMs;
                         const controller=new AbortController(),started=Date.now();let timer,reservation;
@@ -106,7 +109,7 @@ export function createImageAssetSession({providers={},policy=imagePolicy(),root,
                             used.add(asset.id);usedSources.add(asset.sourceChecksum);
                             if(method!=='user'){const {data,filePath,...meta}=asset;try{await atomicImageJson(cachePath,{...meta,cachedAt:Date.now()});}catch{record({slideNumber:slide.slideNumber,method,status:'cache-unavailable',reasonCode:'IMAGE_CACHE_STORAGE_FAILED'});}}
                             record({slideNumber:slide.slideNumber,method,status:'resolved',attempt:attempt+1,model:asset.model,storage:'saved',validation:'passed',elapsedMs:Date.now()-started});return {asset};
-                        }catch(error){if(reservation)usedSources.delete(reservation);const info=classifyImageError(error);if(['IMAGE_INVALID_CREDENTIALS','IMAGE_ACCESS_DENIED','IMAGE_MODEL_UNAVAILABLE','IMAGE_REQUEST_REJECTED'].includes(info.reasonCode))disabled.add(method);record({slideNumber:slide.slideNumber,method,status:'failed',attempt:attempt+1,...info,elapsedMs:Date.now()-started});return {stop:!info.retryable||error.code==='PHOTO_PROVIDER_RATE_LIMITED'||method==='search'&&!brief.authenticPhotoOnly&&info.reasonCode==='PROVIDER_TIMEOUT',retryError:error};}
+                        }catch(error){if(reservation)usedSources.delete(reservation);const info=classifyImageError(error);if(['IMAGE_INVALID_CREDENTIALS','IMAGE_ACCESS_DENIED','IMAGE_MODEL_UNAVAILABLE','IMAGE_REQUEST_REJECTED'].includes(info.reasonCode))disabled.add(method);record({slideNumber:slide.slideNumber,method,status:'failed',attempt:attempt+1,...info,elapsedMs:Date.now()-started});return {stop:!info.retryable||error.code==='PHOTO_PROVIDER_RATE_LIMITED'||method==='search'&&info.reasonCode==='PROVIDER_TIMEOUT',retryError:error};}
                         finally{clearTimeout(timer);controller.abort();controllers.delete(controller);}
                     });
                     if(outcome.asset)return outcome.asset;

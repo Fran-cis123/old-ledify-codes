@@ -71,3 +71,20 @@ test('brand names and home-page labels do not imply property imagery',()=>{
  assert.deepEqual(imageTopicDomains('Open House Sessions'),[]);
  assert.deepEqual(imageTopicDomains('Home page for Artificial Intelligence'),['computing']);
 });
+
+test('space production metadata accepts Earth limb and Mars rover observations without domain or robot false negatives',async()=>{
+ const subject='BEYOND EARTH: Space Exploration and the Future of Humanity';
+ const cases=[
+  {slideTitle:'Beyond Earth',searchQuery:'Earth limb atmospheric glow from orbit deep space starry background',description:'ISS006-E-32181 - View of atmospheric limb.jpg View of atmospheric limb taken during ISS Expedition 6.'},
+  {slideTitle:'Robotic exploration of Mars',searchQuery:'Mars rover surface exploration rocky terrain red soil NASA',description:'PIA08440-Mars Rover Spirit-Volcanic Rock Fragment.jpg NASA Mars Exploration Rover Spirit captured this view of a dark boulder.'},
+  {slideTitle:'Discoveries from space telescopes',searchQuery:'galaxy telescope observations',description:'Spiral galaxy observed by the Hubble Space Telescope'}
+ ];
+ for(const {description,...target} of cases){
+  const request={subject,...target,maxSearchQueries:3},candidate={...rights,description,downloadUrl:'fixture'};
+  assert.equal(evaluateImageRelevance(candidate,request).accepted,true);
+  let downloads=0;const found=await commonsSearch(request,{find:async()=>[candidate],download:async()=>{downloads++;return {buffer:Buffer.from('fixture')};}});
+  assert.ok(found);assert.equal(downloads,1,'download a relevant observation within the existing search budget');
+  assert.equal(evaluateImageRelevance({...rights,description:'Residential villa and garden'},request).accepted,false);
+ }
+ assert.equal(evaluateImageRelevance({...rights,description:'Mars rover surface exploration'},{topic:'Artificial intelligence',slideTitle:'Industrial robotic manufacturing',searchQuery:'industrial robot factory'}).accepted,false);
+});
