@@ -66,8 +66,14 @@ export async function validateImageBytes(buffer,{minWidth=100,minHeight=100,requ
     try{
         const metadata=await sharp(buffer,{limitInputPixels:32_000_000,failOn:'error'}).metadata();
         if(!['jpeg','png','webp'].includes(metadata.format)||metadata.pages>1||metadata.width<minWidth||metadata.height<minHeight)throw new Error('Invalid format/dimensions');
-        const stats=await sharp(buffer,{limitInputPixels:32_000_000,failOn:'error'}).stats();
-        if(requireVariance&&!stats.channels.slice(0,3).some(channel=>channel.stdev>1))throw new Error('Blank generated image');
+        if(requireVariance){
+            const stats=await sharp(buffer,{limitInputPixels:32_000_000,failOn:'error'}).stats();
+            if(!stats.channels.slice(0,3).some(channel=>channel.stdev>1))throw new Error('Blank generated image');
+        }else{
+            // Decode to verify the raster, without computing unused per-pixel
+            // statistics for every responsive size and cache/export read.
+            await sharp(buffer,{limitInputPixels:32_000_000,failOn:'error'}).resize(1,1).raw().toBuffer();
+        }
         return metadata;
     }catch{throw imageError('IMAGE_INVALID','Image data could not be decoded and validated');}
 }

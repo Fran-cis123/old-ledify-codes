@@ -91,7 +91,7 @@ export async function commonsSearch(request,{find=commonsCandidates,download=fet
         let candidates;
         try{const anchor=query.includes(' (')?query.split(' (')[0]:query;candidates=(await find(query,{signal:request.signal})).map(a=>({...a,relevanceScore:candidateSuitability(anchor,a),sceneScore:candidateSuitability(request.searchQuery,a,{partial:true})})).filter(a=>{const eligible=a.relevanceScore>=0&&a.sceneScore>=0;if(!eligible)relevanceDiagnostic(a,request,{accepted:false,reason:'SEARCH_CONTEXT_MISMATCH',method:'independent-metadata'});return eligible;}).sort((a,b)=>b.sceneScore-a.sceneScore||b.relevanceScore-a.relevanceScore);}
         catch(error){if(request.signal?.aborted||error.code==='PHOTO_PROVIDER_RATE_LIMITED')throw error;lastError=error;continue;}
-        candidates=candidates.filter(candidate=>{const review=evaluateImageRelevance(candidate,request);relevanceDiagnostic(candidate,request,review);return review.accepted;});
+        candidates=candidates.filter(candidate=>{const review=evaluateImageRelevance(candidate,request);relevanceDiagnostic(candidate,request,review);return review.accepted&&(!request.acceptCandidate||request.acceptCandidate(candidate));});
         const offset=(request.attempt||0)%Math.max(1,candidates.length);
         for(const candidate of [...candidates.slice(offset),...candidates.slice(0,offset)].filter(c=>!attemptedUrls.has(c.downloadUrl)).slice(0,3)){
             attemptedUrls.add(candidate.downloadUrl);

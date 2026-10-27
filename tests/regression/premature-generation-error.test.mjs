@@ -28,7 +28,8 @@ test('backend job remains processing while waiting and resumes polling without g
  await until(()=>generated===1);
  for(let i=0;i<3;i++){const {response,job}=await poll();assert.equal(job.status,'processing');assert.equal(response.headers.get('Retry-After'),'2');assert.equal(job.result,undefined);}
  release();const completed=await until(async()=>{const {job}=await poll();return job.status==='completed'&&job;});
- assert.equal(completed.result.status,'completed_with_warnings');assert.equal(completed.result.generatedContent.title,'Renewable energy');assert.equal(generated,1);assert.deepEqual(events,[]);
+ assert.equal(completed.result.status,'completed_with_warnings');assert.equal(completed.result.generatedContent.title,'Renewable energy');assert.equal(generated,1);
+ assert.equal(events.length,1);assert.equal(events[0].status,'response-finished');assert.equal(events[0].httpStatus,202);assert.ok(events[0].elapsedMs>=0);assert.ok(events[0].requestId);assert.equal(JSON.stringify(events).includes(receipt.statusUrl.split('/').at(-1)),false);
 });
 test('a disconnected synchronous caller is logged without marking successful generation failed',async t=>{
  let release,started,record,saved=false;const gate=new Promise(resolve=>{release=resolve;}),running=new Promise(resolve=>{started=resolve;});t.after(()=>release());const events=[];

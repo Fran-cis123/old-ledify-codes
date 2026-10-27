@@ -1,0 +1,34 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import JSZip from 'jszip';
+import {validateImageBytes} from '../Service/visual/imageAssetService.mjs';
+import {acquireProviderImage} from '../Service/webpage/providerCache.mjs';
+import {webpageArtifactService} from '../Service/webpageArtifactService.mjs';
+import {profileGeneration} from '../Service/performance.mjs';
+const label=process.argv[2]||'measurement';
+const sourcePath=process.argv[3]||'generated/system-reliability/apex-final-2026-10-27/apex-webpage.zip';
+const sourceBytes=await fs.readFile(sourcePath);
+const archive=await JSZip.loadAsync(sourceBytes,{checkCRC32:true});
+const files={};for(const [name,file] of Object.entries(archive.files))if(!file.dir&&name.startsWith('my-website/')&&!name.endsWith('README.txt'))files[name.slice(11)]=await file.async('nodebuffer');
+for(const name of Object.keys(files))if(/\.(?:html|css|js|json|svg|txt)$/.test(name))files[name]=files[name].toString('utf8');
+const images=Object.entries(files).filter(([name])=>/\.(webp|png|jpe?g)$/.test(name));assert.ok(images.length>=12);
+const root=await fs.mkdtemp(path.join(os.tmpdir(),'ledify-speed-'));
+const report={label,scope:'Controlled components using identical saved website bytes and simulated stock-provider latency; not Render end-to-end timing.',images:images.length,imageBytes:images.reduce((sum,[,buffer])=>sum+buffer.length,0)};
+try{
+ let started=performance.now();
+ for(let i=0;i<3;i++)for(const [,buffer] of images)await validateImageBytes(buffer);
+ report.validationMs=Math.round(performance.now()-started);report.validationIterations=3;
+ let active=0,peak=0,calls=0;
+ const provider={id:'commons',acquire:async()=>{calls++;peak=Math.max(peak,++active);try{await new Promise(resolve=>setTimeout(resolve,200));return {buffer:images.at(-1)[1],creator:'Benchmark',license:'Fixture',source:'Fixture'};}finally{active--;}}};
+ started=performance.now();
+ await Promise.all(Array.from({length:8},(_,index)=>acquireProviderImage(provider,{query:'fixture '+index},{cacheRoot:path.join(root,'cache')})));
+ report.stockSchedulingMs=Math.round(performance.now()-started);report.providerCalls=calls;report.peakStockConcurrency=peak;assert.equal(calls,8);assert.ok(peak<=2);
+ const artifacts=await profileGeneration(()=>webpageArtifactService(files,{root:path.join(root,'site')}),{logger:()=>{},onReport:perf=>{report.packagingMs=perf.totalMs;report.packagingStages=perf.stages;}});
+ assert.equal(artifacts.status,'completed');const exported=await JSZip.loadAsync(await fs.readFile(artifacts.files.zipPath),{checkCRC32:true});
+ for(const [name,buffer] of Object.entries(files))assert.deepEqual(await exported.file('my-website/'+name).async('nodebuffer'),Buffer.from(buffer));
+ report.everyExportedByteIdentical=true;report.sourceDigest=createHash('sha256').update(sourceBytes).digest('hex');
+ await fs.writeFile('generated/webpage-speed-'+label+'.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));
+}finally{await fs.rm(root,{recursive:true,force:true});}

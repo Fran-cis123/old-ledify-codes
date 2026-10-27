@@ -29,6 +29,13 @@ export async function acquireWebsiteImages(page,context={},options={}){
     const optimize=async (record,buffer,target=requests.find(target=>target.role===record.role&&(!record.sectionId||target.sectionId===record.sectionId))||record)=>{
         if(selected.length>=policy.maxAssets||selected.some(asset=>asset.role==='hero'&&record.role==='hero'))return false;
         if(!record.alt?.trim()||!record.license?.trim()||!record.creator?.trim())throw new Error('Missing image provenance');
+        // Reject unsuitable metadata before spawning an image worker. The final
+        // review below still checks actual decoded dimensions and placement.
+        if(record.role!=='logo'){
+            const candidate=record.source==='Google Gemini'?{...record,subject:target.query}:record;
+            const preflight=reviewImageCandidate(candidate,target);
+            if(!preflight.accepted){relevanceDiagnostic(record,target,preflight,options.relevanceLogger);warnings.push({code:'WEBPAGE_IMAGE_RELEVANCE_REJECTED',message:'An image failed semantic relevance or provenance checks.'});return false;}
+        }
         const optimized=await optimizeWebsiteImage(buffer,options.optimization);
         // Optimization yields to other targets. Recheck the shared budget here
         // before publishing; concurrent acquisitions may have completed first.
@@ -69,7 +76,7 @@ export async function acquireWebsiteImages(page,context={},options={}){
     if(options.external!==false){
         if(!providers.some(provider=>provider.id==='gemini-image'))warnings.push({code:'WEBPAGE_IMAGE_GENERATION_NOT_CONFIGURED',message:'AI imagery is unavailable: configure WEBPAGE_ALLOW_IMAGE_GENERATION=true, WEBPAGE_IMAGE_MODEL and GEMINI_API_KEY. Authorized stock/local assets may still be used.'});
         const targets=[...requests].sort((a,b)=>Number(b.required)-Number(a.required)||Number(b.role==='hero')-Number(a.role==='hero')).slice(0,Math.max(0,policy.maxAssets-selected.length));
-        await generateIndependent(targets,generationConcurrency(options.concurrency??process.env.WEBPAGE_IMAGE_CONCURRENCY,2),async target=>{
+        await generateIndependent(targets,generationConcurrency(options.concurrency??policy.concurrency,2),async target=>{
             if(selected.some(asset=>matches(asset,target)))return;
             if(selected.length>=policy.maxAssets||Date.now()-started>=policy.totalMs)return;
             for(const provider of providers){

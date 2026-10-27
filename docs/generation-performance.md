@@ -57,6 +57,23 @@ An unfinished PDF/PNG stage may need to rerender the saved deck; no new text
 generation is needed once its completed content checkpoint exists.
 
 The private token authorizes reading the result; do not publish or log it.
+
+Job polling also exposes `queuedAt`, `startedAt`, `completedAt` and `timings`
+(`queueWaitMs`, `executionMs`, `totalMs`). Timings describe the current attempt;
+an explicit retry or resumed interrupted processing attempt resets them. `[GENERATION_JOB]` logs these measurements without
+the private token or prompt. A job's ID is also its AI/PERF request ID.
+`[GENERATION_DELIVERY]` records HTTP response completion and disconnected clients,
+including HTTP status and elapsed time after request handling started. These
+measurements exclude time before the request reaches the application and do not
+measure browser rendering or iframe loading.
+
+Website stock acquisition defaults to two concurrent requests, with an explicit
+`WEBPAGE_IMAGE_CONCURRENCY=1` override for more restrictive deployments. Paid
+image generation remains serialized and retains its existing call budget.
+Commons metadata spacing and Retry-After handling remain unchanged. Packaging
+PERF sub-stages separate raster validation, file writing, ZIP creation and ZIP
+verification; their times are included in the overall packaging stage, not extra
+time to add to it.
 Input, checkpoints and status are written atomically under `generated/jobs` (or
 `LEDIFY_JOB_ROOT`). One background job runs at a time, with at most eight pending
 jobs. Capacity errors return HTTP 503 and `Retry-After`. This queue supports one

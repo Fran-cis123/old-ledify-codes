@@ -6,13 +6,17 @@ import { validateStaticWebsite } from './webpageStaticValidator.mjs';
 import {generateIndependent} from './ai/concurrency.mjs';
 import {storageRoot} from './storageRoot.mjs';
 import {validateImageBytes,imageDiagnostic} from './visual/imageAssetService.mjs';
+import {measureStage} from './performance.mjs';
 
 export const WEBPAGE_ROOT = path.resolve(process.env.LEDIFY_WEBPAGE_ROOT || storageRoot('webpages'));
 export const tokenHash = token => createHash('sha256').update(token).digest('hex');
 export async function webpageArtifactService(files, options = {}) {
     const validation = validateStaticWebsite(files);
-    const imageHashes={};
-    for(const [name,buffer] of Object.entries(files).filter(([name])=>/\.(?:png|jpe?g|webp)$/.test(name))){await validateImageBytes(buffer);imageHashes[name]=createHash('sha256').update(buffer).digest('hex');}
+    const imageHashes=await measureStage('website-package-images',async()=>{
+        const hashes={};
+        for(const [name,buffer] of Object.entries(files).filter(([name])=>/\.(?:png|jpe?g|webp)$/.test(name))){await validateImageBytes(buffer);hashes[name]=createHash('sha256').update(buffer).digest('hex');}
+        return hashes;
+    });
     const root = path.resolve(options.root || WEBPAGE_ROOT);
     const id = randomUUID(), token = randomBytes(32).toString('hex');
     const directory = path.join(root, id), siteDirectory = path.join(directory, 'site');
@@ -20,12 +24,12 @@ export async function webpageArtifactService(files, options = {}) {
     const stages = { site: 'processing', zip: 'skipped' }, warnings = [];
     let downloadUrl = null;
     try {
-        await generateIndependent(Object.entries(files),4,async([name,content])=>{
+        await measureStage('website-package-write',()=>generateIndependent(Object.entries(files),4,async([name,content])=>{
             const destination = path.resolve(siteDirectory, name);
             if (!destination.startsWith(siteDirectory + path.sep)) throw new Error('Unsafe output path');
             await fs.mkdir(path.dirname(destination), { recursive: true });
             await fs.writeFile(destination, content, { flag: 'wx' });
-        },()=>{});
+        },()=>{}));
         stages.site = 'completed';
         for(const [name,hash] of Object.entries(imageHashes))if(createHash('sha256').update(await fs.readFile(path.join(siteDirectory,name))).digest('hex')!==hash)throw new Error('Image storage checksum mismatch');
         try {
@@ -36,9 +40,11 @@ export async function webpageArtifactService(files, options = {}) {
             for (const [name, content] of Object.entries(files)) folder.file(name, content,{compression:/\.(?:webp|png|jpe?g|woff2?)$/i.test(name)?'STORE':'DEFLATE',compressionOptions:{level:3}});
             const readme = 'Extract this ZIP, then double-click my-website/index.html. No installation or server is needed. All essential assets are bundled. External project/contact links work when a suitable application or internet connection is available. This is a static site: it has no account, payment, reservation, or submission backend.\n';
             folder.file('README.txt', readme);
-            const archive = await (options.buildZip || (zip => zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })))(zip);
-            const verified=await JSZip.loadAsync(archive,{checkCRC32:true});
-            for(const [name,hash] of Object.entries(imageHashes))if(!verified.file('my-website/'+name)||createHash('sha256').update(await verified.file('my-website/'+name).async('nodebuffer')).digest('hex')!==hash)throw new Error('ZIP image checksum mismatch');
+            const archive = await measureStage('website-package-zip',()=>(options.buildZip || (zip => zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })))(zip));
+            await measureStage('website-package-verify',async()=>{
+                const verified=await JSZip.loadAsync(archive,{checkCRC32:true});
+                for(const [name,hash] of Object.entries(imageHashes))if(!verified.file('my-website/'+name)||createHash('sha256').update(await verified.file('my-website/'+name).async('nodebuffer')).digest('hex')!==hash)throw new Error('ZIP image checksum mismatch');
+            });
             await fs.writeFile(path.join(directory, 'website.zip'), archive, { flag: 'wx' });
             stages.zip = 'completed';
             downloadUrl = `/api/webpages/${id}/${token}/download`;

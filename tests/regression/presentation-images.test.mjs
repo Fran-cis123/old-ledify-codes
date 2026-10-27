@@ -77,7 +77,9 @@ test('a deck deadline prevents queued image requests from extending retrieval in
     const root=await temp(t),sample=imagerySamples[0];let calls=0;
     const session=createImageAssetSession({root,policy:{...imagePolicy({}),deadlineMs:20,timeoutMs:100,concurrency:1,retries:1},providers:{search:async()=>{calls++;await new Promise(r=>setTimeout(r,50));return null;}}});
     const result=await Promise.all(sample.presentation.slides.slice(0,3).map(s=>session.resolve(sample.presentation,s,theme,{})));
-    assert.ok(result.every(v=>v===null));assert.equal(calls,1);assert.ok(session.diagnostics.some(d=>d.reason==='Deck image deadline reached'));
+    // Filesystem/cache checks can consume this deliberately tiny deadline before
+    // the first provider call. Both zero and one call respect the same bound.
+    assert.ok(result.every(v=>v===null));assert.ok(calls<=1);assert.ok(session.diagnostics.some(d=>d.reason==='Deck image deadline reached'));
 });
 test('user image payloads are decoded and stripped before text-model context/public response',async()=>{
     const dataUrl='data:image/jpeg;base64,'+(await photoBuffer()).toString('base64');

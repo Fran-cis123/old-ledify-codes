@@ -5,7 +5,7 @@ import {requestedLabels} from '../ai/requestedLabels.mjs';
 import {imageIdentityLabel} from '../visual/imageIdentity.mjs';
 const bounded=(value,fallback,min,max)=>Number.isFinite(Number(value))?Math.min(max,Math.max(min,Math.floor(Number(value)))):fallback;
 export function imagePolicy(env=process.env){
-    return {maxAssets:bounded(env.WEBPAGE_IMAGE_MAX_ASSETS,8,1,8),maxGenerated:bounded(env.WEBPAGE_IMAGE_MAX_GENERATED,2,0,4),timeoutMs:bounded(env.WEBPAGE_IMAGE_TIMEOUT_MS,30000,1000,60000),totalMs:bounded(env.WEBPAGE_IMAGE_TOTAL_MS,60000,1000,120000),retries:bounded(env.WEBPAGE_IMAGE_RETRIES,0,0,1),concurrency:bounded(env.WEBPAGE_IMAGE_CONCURRENCY,1,1,2)};
+    return {maxAssets:bounded(env.WEBPAGE_IMAGE_MAX_ASSETS,8,1,8),maxGenerated:bounded(env.WEBPAGE_IMAGE_MAX_GENERATED,2,0,4),timeoutMs:bounded(env.WEBPAGE_IMAGE_TIMEOUT_MS,30000,1000,60000),totalMs:bounded(env.WEBPAGE_IMAGE_TOTAL_MS,60000,1000,120000),retries:bounded(env.WEBPAGE_IMAGE_RETRIES,0,0,1),concurrency:bounded(env.WEBPAGE_IMAGE_CONCURRENCY,2,1,2)};
 }
 export function planWebsiteImages(page,context={}){
     if(wantsTextOnly(context))return [];

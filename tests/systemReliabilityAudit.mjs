@@ -13,6 +13,7 @@ import {docxSource,DOCX_MIME} from './fixtures/uploadFiles.mjs';
 import {checkWebsiteBrowser} from '../Service/webpage/browserChecks.mjs';
 import {isAutomaticImageLabel} from '../renderer/imageLabels.mjs';
 import {reviewImageCandidate} from '../Service/webpage/imageReview.mjs';
+import {performanceRequestId} from '../Service/performance.mjs';
 const root=path.resolve('generated/system-reliability',process.argv[2]||Date.now().toString()),reports=[];await fs.mkdir(root,{recursive:true});
 const apex=JSON.parse(await fs.readFile(new URL('./fixtures/apexMotorsRequest.json',import.meta.url),'utf8'));
 // Preserve all collection requirements; remove two repeated visual sentences.
@@ -32,7 +33,7 @@ if(process.argv[4])for(const id of await fs.readdir(path.resolve(process.argv[4]
  try{const directory=path.resolve(process.argv[4],'jobs',id),input=JSON.parse(await fs.readFile(path.join(directory,'input.json'),'utf8')),content=JSON.parse(await fs.readFile(path.join(directory,'content.json'),'utf8'));checkpoints.set(input.outputType+':'+input.input,content);}catch{}
 }
 let currentCase='unknown';
-const app=createApp({model,jobRoot:path.join(root,'jobs'),webpageRoot:path.join(root,'webpages'),documentRoot:path.join(root,'documents'),generator:(kind,input,output,context,options)=>generateService(kind,input,output,context,{...options,...(checkpoints.has(output+':'+input)?{completedContent:checkpoints.get(output+':'+input)}:{}),artifacts:{root:path.join(root,'webpages')},document:{root:path.join(root,'documents')},ai:{...options.ai,onInvalidContent:details=>fs.writeFile(path.join(root,currentCase+'-invalid.json'),JSON.stringify(details,null,2))},performance:{forceNew:true,onReport:report=>fs.writeFile(path.join(root,currentCase+'-perf.json'),JSON.stringify(report,null,2))}})});
+const app=createApp({model,jobRoot:path.join(root,'jobs'),webpageRoot:path.join(root,'webpages'),documentRoot:path.join(root,'documents'),generator:(kind,input,output,context,options)=>generateService(kind,input,output,context,{...options,...(checkpoints.has(output+':'+input)?{completedContent:checkpoints.get(output+':'+input)}:{}),artifacts:{root:path.join(root,'webpages')},document:{root:path.join(root,'documents')},ai:{...options.ai,onInvalidContent:details=>fs.writeFile(path.join(root,currentCase+'-invalid.json'),JSON.stringify(details,null,2))},performance:{forceNew:true,requestId:performanceRequestId(),onReport:report=>fs.writeFile(path.join(root,currentCase+'-perf.json'),JSON.stringify(report,null,2))}})});
 const server=app.listen(0,'127.0.0.1');await once(server,'listening');const origin=`http://127.0.0.1:${server.address().port}`;
 async function bytes(url){const r=await fetch(new URL(url,origin));assert.equal(r.status,200);return Buffer.from(await r.arrayBuffer());}
 let browser;
@@ -44,7 +45,7 @@ try{
    if(sample.file){body=new FormData();body.set('file',new Blob([sample.file],{type:DOCX_MIME}),'source.docx');body.set('outputType',sample.body.outputType);body.set('exportFormat',sample.body.exportFormat);body.set('context',JSON.stringify(sample.body.context));}else{headers['Content-Type']='application/json';body=JSON.stringify(sample.body);}
    const response=await fetch(origin+'/api/generate/'+sample.kind,{method:'POST',headers,body});report.admissionMs=Math.round(performance.now()-started);report.admissionStatus=response.status;const receipt=await response.json();assert.equal(response.status,202,JSON.stringify(receipt));
    let job;while(performance.now()-started<420000){job=(await (await fetch(origin+receipt.data.statusUrl)).json()).data;if(['completed','failed'].includes(job.status))break;await new Promise(resolve=>setTimeout(resolve,300));}
-   report.totalMs=Math.round(performance.now()-started);report.jobStatus=job?.status;report.error=job?.error;assert.ok(job?.result,JSON.stringify(job?.error));const result=job.result;
+   report.totalMs=Math.round(performance.now()-started);report.jobStatus=job?.status;report.jobTimings=job?.timings;report.error=job?.error;assert.ok(job?.result,JSON.stringify(job?.error));const result=job.result;
    await fs.writeFile(path.join(root,sample.name+'-result.json'),JSON.stringify(result,null,2));report.resultStatus=result.status;report.imageValidation=result.imageValidation;report.timings=result.timings;report.warningCodes=(result.warnings||[]).map(w=>w.code);report.artifacts=[];
    if(sample.body.outputType==='presentation'){
     const pptx=await bytes(result.preview.downloads.pptx),zip=await JSZip.loadAsync(pptx,{checkCRC32:true});const slideFiles=Object.keys(zip.files).filter(name=>/^ppt\/slides\/slide\d+\.xml$/.test(name));

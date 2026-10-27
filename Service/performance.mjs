@@ -31,7 +31,7 @@ export async function measureStage(name,fn){
 export async function profileGeneration(fn,options={}){
     if(storage.getStore()&&!options.forceNew)return fn();
     const delay=monitorEventLoopDelay({resolution:20});delay.enable();
-    const state={id:randomUUID(),started:performance.now(),cpu:process.cpuUsage(),loop:nodePerformance.eventLoopUtilization(),delay,startRss:process.memoryUsage().rss,peakRss:0,stages:{},onProgress:options.onProgress,
+    const state={id:options.requestId||randomUUID(),started:performance.now(),cpu:process.cpuUsage(),loop:nodePerformance.eventLoopUtilization(),delay,startRss:process.memoryUsage().rss,peakRss:0,stages:{},onProgress:options.onProgress,
         ai:{calls:0,retries:0,elapsedMs:0,promptTokens:0,outputTokens:0,totalTokens:0,stages:{}}};
     state.peakRss=state.startRss;
     return storage.run(state,async()=>{

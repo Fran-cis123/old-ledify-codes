@@ -15,6 +15,9 @@ import {validateTextPrompt} from '../Service/input/promptValidation.mjs';
 export function createGenerationHandlers({ model = generateModel, generator = generateService, extractFile = fileService, extractUrl = urlService,jobRoot,jobOptions={},deliveryLogger=event=>console.info('[GENERATION_DELIVERY]',JSON.stringify(event)) } = {}) {
     const handle = inputType => (req, res) => profileGeneration(async() => {
         const deliveryStarted=performance.now(),deliveryRequestId=performanceReport()?.requestId;
+        res.once?.('finish',()=>{
+            try{deliveryLogger({requestId:deliveryRequestId,status:'response-finished',httpStatus:res.statusCode,elapsedMs:Math.round(performance.now()-deliveryStarted),outputType:['presentation','webpage','document'].includes(req.body?.outputType)?req.body.outputType:'unknown'});}catch{}
+        });
         res.once?.('close',()=>{
             if(!res.writableFinished)try{deliveryLogger({requestId:deliveryRequestId,status:'client-disconnected',elapsedMs:Math.round(performance.now()-deliveryStarted),outputType:['presentation','webpage','document'].includes(req.body?.outputType)?req.body.outputType:'unknown'});}catch{}
         });

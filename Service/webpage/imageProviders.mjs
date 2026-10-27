@@ -3,7 +3,8 @@ import {generateGoogleImage,googleImageModel} from '../visual/googleImageService
 import {imagePolicy} from './imageStrategy.mjs';
 import {createHash} from 'node:crypto';
 import {commonsSearch} from '../visual/imageProviders.mjs';
-import {evaluateImageRelevance,relevantSearchQuery,relevanceDiagnostic} from '../visual/imageRelevance.mjs';
+import {relevantSearchQuery,relevanceDiagnostic} from '../visual/imageRelevance.mjs';
+import {reviewImageCandidate} from './imageReview.mjs';
 
 export async function downloadWebsiteImage(url,options={}){
     if(new URL(url).protocol!=='https:')throw new Error('Image references must use HTTPS');
@@ -23,7 +24,7 @@ export function websiteImageProviders(env=process.env,options={}){
     if(env.PEXELS_API_KEY)providers.push({id:'pexels',cacheScope:createHash('sha256').update(env.PEXELS_API_KEY).digest('hex'),acquire:async request=>{
         const query=new URL('https://api.pexels.com/v1/search');query.search=new URLSearchParams({query:relevantSearchQuery(request),per_page:'3',orientation:request.aspectRatio==='3:4'?'portrait':request.aspectRatio==='1:1'?'square':'landscape',size:'large'});
         const body=await boundedJson(await fetch(query,{headers:{Authorization:env.PEXELS_API_KEY},redirect:'error',signal:request.signal?AbortSignal.any([request.signal,AbortSignal.timeout(12000)]):AbortSignal.timeout(12000)}));
-        const photo=body.photos?.find(photo=>{const review=evaluateImageRelevance({alt:photo.alt},request);relevanceDiagnostic({alt:photo.alt,source:'Pexels'},request,review);return photo.width>=960&&photo.src?.large2x&&photo.photographer&&photo.url&&review.accepted;});
+        const photo=body.photos?.find(photo=>{const record={alt:photo.alt,source:'Pexels',creator:photo.photographer,license:'Pexels License'};const review=reviewImageCandidate(record,request,{width:photo.width,height:photo.height});relevanceDiagnostic(record,request,review);return photo.width>=960&&photo.src?.large2x&&photo.photographer&&photo.url&&review.accepted;});
         if(!photo)return null;
         if(new URL(photo.src.large2x).hostname!=='images.pexels.com')throw new Error('Unexpected image host');
         return {buffer:await downloadWebsiteImage(photo.src.large2x,{signal:request.signal}),alt:photo.alt||'',creator:photo.photographer,license:'Pexels License',licenseUrl:'https://www.pexels.com/license/',source:'Pexels',sourceUrl:photo.url,creatorUrl:photo.photographer_url,illustrative:true,role:request.role,sectionType:request.sectionType||'',caption:'Illustrative stock photography. Not a photograph of this organization.'};
@@ -34,7 +35,7 @@ export function websiteImageProviders(env=process.env,options={}){
         return {buffer:result.buffer,model,cacheHit:result.cacheHit,alt:request.alt,creator:'AI generated',license:'Configured Gemini account terms apply',licenseUrl:'https://ai.google.dev/gemini-api/terms',source:'Google Gemini',illustrative:true,role:request.role,caption:'AI-generated conceptual illustration; not an actual photograph of this organization.'};
     }});
     providers.push({id:'commons',acquire:async request=>{
-        const image=await commonsSearch({...request,searchQuery:relevantSearchQuery(request),maxSearchQueries:2});
+        const image=await commonsSearch({...request,searchQuery:relevantSearchQuery(request),maxSearchQueries:2,acceptCandidate:record=>reviewImageCandidate(record,request,{width:record.width,height:record.height}).accepted});
         return image?{...image,alt:image.description,sourceUrl:image.originalUrl,illustrative:true}:null;
     }});
     return providers;
